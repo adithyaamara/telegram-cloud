@@ -37,28 +37,32 @@ except (FileNotFoundError, json.decoder.JSONDecodeError):
     schema = {'root': [], "meta": {"total_size": 0, "last_validated": "Unavailable! Please Revalidate schema."}}
 
 # Function to upload a file and update the schema
-def upload_file(file: datastructures.FileStorage, file_name: str):
+def upload_file(file: datastructures.FileStorage, file_name: str, update_schema: bool = True):
     try:
         response = bot.send_document(filename=file_name, caption=file_name, chat_id=channel_id, document=InputFile(file, filename=file_name))
         # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
         file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
-        schema['root'].append(file_info)    # At the moment, default directory is 'root' only.
+        if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
+            schema['root'].append(file_info)    # At the moment, default directory is 'root' only.
         logger.debug(f"File uploaded successfully. Message ID: {response.message_id}")
         save_schema()
-        return True, None
+        return True, response.document.file_id
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
         return False, str(e)
 
 # Function to download a file using the recorded file ID
-def download_file(file_id: str):
+def download_file(file_id: str, to_local: bool = False):
     try:
         file_content: bytes = bot.get_file(file_id).download_as_bytearray()    # All the file data is in ram, not on local file storage.
         logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
         file_info = next((info for info in schema['root'] if info['file_id'] == file_id), None)
+        if to_local:
+            return file_content
         return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_info["filename"])  # same is reverted to user, with out saving locally.
     except Exception as e:
         logger.error(f"Error downloading the file: {e}")
+        return False
 
 # Function to delete a file from the channel and update the schema
 def delete_file(message_id: int):
@@ -74,8 +78,11 @@ def delete_file(message_id: int):
         return False
 
 # Function to save the schema to the file
-def save_schema():
+def save_schema(file_content_bytes: bytes = None):
     with open(schema_filename, 'w') as schema_file:
+        if file_content_bytes is not None:
+            global schema
+            schema = json.loads(file_content_bytes.decode('utf8'))
         json.dump(schema, schema_file, indent=4)    # save as file. [Should be migrated to mongodb]
     logger.debug(f"Latest Schema dumped!!")
 
@@ -136,10 +143,10 @@ def upload():
     success_count = 0
     if len(files) > 0:
         for file in files:
-            success, error_message = upload_file(file, file.filename)
+            success, error_message = upload_file(file, file.filename)   # On success we get, True, file_id
             if success:
                 success_count += 1
-            else:
+            else:   # on failure we get false, error_message
                 logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
         if success_count == len(files):
             return redirect(url_for("index"))
@@ -176,6 +183,32 @@ def validate_schema():
     return "This will iterate through all the files in schema, and checks if they still exist in cloud. \
         Finally updates schema with only files that are still available in cloud. This will take a long time, happens in background. \
             Advised to not make any changes to cloud state meanwhile."
+
+@app.route('/persist/upload/', methods=['GET'])
+def persist_schema():
+    block_on_validation_in_progress()
+    try:
+        success, file_id = upload_file(file=open(schema_filename, 'rb'), file_name=schema_filename, update_schema=False)
+        if success is True:
+            return jsonify({"message": f"Schema Upload successful, Use {file_id} to recover!"})
+    except Exception as err:
+        logger.error(f"Something went wrong during uploading schema: {err}")
+    return render_template('error.html', error_message=file_id)  # This is not file_id but error if success is False.
+
+@app.route('/persist/download/', methods=['GET', 'POST'])
+def recover_schema():
+    block_on_validation_in_progress()
+    if request.method == 'GET':
+        return render_template('recovery.html')
+    try:
+        file_content: bytes = download_file(file_id=request.form.get("file_id"), to_local=True)
+        if file_content:
+            save_schema(file_content)
+            logger.info(f"Schema recovery successful!")
+            return redirect(url_for('index'))
+    except Exception as err:
+        logger.error(f"Something went wrong recovering schema from cloud: {err}")
+    return render_template('error.html', error_message='Something went wrong during schema recovery. Please try again!!')
 
 if __name__ == '__main__':
     logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'INFO').upper())
