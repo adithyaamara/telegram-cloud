@@ -1,5 +1,6 @@
 python-telegram-bot==13.2
 flask==2.2.2
+werkzeug==2.2.3
 python-dotenv==0.20.0
 pymongo==4.6.1
 hurry.filesize==0.9

@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify
 from werkzeug import datastructures
-# from werkzeug.utils import secure_filename
 from telegram import Bot, InputFile, error as telegram_error
 from threading import Thread
 from dotenv import load_dotenv
@@ -33,7 +32,7 @@ try:    # FEATURE: Migrate schema to mongo db. [Allow us for a greater level of 
         schema = json.load(schema_file)
         if "meta" not in schema:
             schema["meta"] = {"total_size": "Unknown", "last_validated": "Please re-validate schema ASAP!"}
-except FileNotFoundError:
+except (FileNotFoundError, json.decoder.JSONDecodeError):
     logger.info("Schema.json not found in local directory, creating new empty schema.")
     schema = {'root': [], "meta": {"total_size": 0, "last_validated": "Unavailable! Please Revalidate schema."}}
 
