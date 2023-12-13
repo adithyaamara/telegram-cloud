@@ -40,7 +40,7 @@ except FileNotFoundError:
 # Function to upload a file and update the schema
 def upload_file(file: datastructures.FileStorage, file_name: str):
     try:
-        response = bot.send_document(filename=file_name, chat_id=channel_id, document=InputFile(file))  # BUG: Filename given in send_document is not reaching cloud, all files are getting uploaded as `upload_file`.
+        response = bot.send_document(filename=file_name, caption=file_name, chat_id=channel_id, document=InputFile(file, filename=file_name))
         # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
         file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
         schema['root'].append(file_info)    # At the moment, default directory is 'root' only.
@@ -128,7 +128,7 @@ def block_on_validation_in_progress():
 @app.route('/')
 def index():
     block_on_validation_in_progress()
-    return render_template('index.html', files=schema['root'], total_size=schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(schema["meta"]["last_validated"])) if isinstance(schema["meta"]["last_validated"], int) else schema["meta"]["last_validated"])
+    return render_template('index.html', files=schema['root'], total_size=schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(schema["meta"]["last_validated"])) if isinstance(schema["meta"]["last_validated"], float) else schema["meta"]["last_validated"])
 
 @app.route('/upload', methods=['POST'])
 def upload():
