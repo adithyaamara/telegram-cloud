@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file
 from werkzeug import datastructures
-from werkzeug.utils import secure_filename
+# from werkzeug.utils import secure_filename
 from telegram import Bot, InputFile
 from dotenv import load_dotenv
 import io
@@ -34,7 +34,7 @@ except FileNotFoundError:
 # Function to upload a file and update the schema
 def upload_file(file: datastructures.FileStorage, file_name: str):
     try:
-        response = bot.send_document(chat_id=channel_id, document=InputFile(file), filename=file_name)
+        response = bot.send_document(filename=file_name, chat_id=channel_id, document=InputFile(file))  # BUG: Filename given in send_document is not reaching cloud, all files are getting uploaded as `upload_file`.
         # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
         file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": round((response.document.file_size / 1024), 2)}
         schema['root'].append(file_info)    # At the moment, default directory is 'root' only.
@@ -81,18 +81,26 @@ def save_schema():
 def index():
     return render_template('index.html', files=schema['root'])
 
+@app.route('/validate/')
+def validate_schema():
+    def validate_job():
+        # Works on global object schema, start this function as a background thread. Finally put the last validation date in schema for future reference (Display last validation date in homepage also.).
+        pass
+    return "This will iterate through all the files in schema, and checks if they still exist in cloud. \
+        Finally updates schema with only files that are still available in cloud. This will take a long time, happens in background. \
+            Advised to not make any changes to cloud state meanwhile."
+
 @app.route('/upload', methods=['POST'])
 def upload():
     files = request.files.getlist('upload_file')
     success_count = 0
     if len(files) > 0:
         for file in files:
-            fname = secure_filename(file.filename)
-            success, error_message = upload_file(file, fname)
+            success, error_message = upload_file(file, file.filename)
             if success:
                 success_count += 1
             else:
-                logger.error(f"Failed to upload file {fname}, Error: {str(error_message)}")
+                logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
         if success_count == len(files):
             return redirect(url_for("index"))
         else:

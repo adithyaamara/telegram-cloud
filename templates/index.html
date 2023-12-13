@@ -8,7 +8,9 @@
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light" style="background-color: #e3f2fd;">
-        <a class="navbar-brand" href="/"><b>TelegramCloud:V1.0</b></a></nav>
+        <a class="navbar-brand" href="/"><b>TelegramCloud:V1.0</b></a>
+        <a href="/validate/" class="btn btn-primary ml-auto" onclick="return confirm('This might take a long time. Do you wish to proceed?')"> Re-Validate Schema </a>
+    </nav>
     <div class="container mt-4">
     <!-- <h3>Uploaded Files</h3> -->
     <form action="{{ url_for('upload') }}" method="post" class="form" enctype="multipart/form-data">
