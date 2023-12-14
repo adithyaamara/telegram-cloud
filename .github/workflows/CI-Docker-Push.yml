@@ -5,7 +5,7 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - '.github/workflows/**'
+      - '!.github/workflows/**'
       - '!*.md'
       - '!cspell.json'
 
@@ -24,4 +24,3 @@ jobs:
       with:
         push: true
         tags: adithyaamara/telegram-cloud:v1.${{ github.run_number }}
-
