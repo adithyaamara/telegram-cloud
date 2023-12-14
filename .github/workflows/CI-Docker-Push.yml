@@ -4,9 +4,10 @@ on:
   workflow_dispatch:  # Manual trigger if needed.
   push:
     branches: [ "main" ]
-    paths-ignore: 
-     - ".github/*"
-     - "Readme.md"
+    paths:
+      - '.github/workflows/**'
+      - '!*.md'
+      - '!cspell.json'
 
 jobs:
   BuildAndPush:
