@@ -9,6 +9,7 @@ RUN pip install -r requirements.txt
 COPY certs/ /svc/certs/
 COPY templates/ /svc/templates/
 COPY bot.py /svc/bot.py
+COPY core.py /svc/core.py
 COPY start.sh /svc/start.sh
 
 EXPOSE 443
