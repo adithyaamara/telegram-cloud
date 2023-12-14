@@ -2,6 +2,7 @@ from telegram import Bot, InputFile, error as telegram_error
 from os import environ as env
 from werkzeug import datastructures
 from datetime import datetime
+from pathvalidate import sanitize_filename, sanitize_filepath
 from dotenv import load_dotenv
 import time
 from hurry.filesize import size
@@ -18,6 +19,7 @@ class BotActions:
         self._schema_filename = 'schema.json'
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
         self.VALIDATION_ACTIVE = False
+        self._default_upload_directory = "root"
         logger.info("Required config variables are read from env!")
 
     def load_or_reload_schema(self):
@@ -80,14 +82,31 @@ class BotActions:
     def is_validation_active(self):
         return self.VALIDATION_ACTIVE
 
-    def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True):
+    def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
         try:
+            file_name = sanitize_filename(file_name)
+            if directory[0] == "/": directory = directory[1:]    # remove first / if present.
+            full_path = sanitize_filepath(directory).split('/')
+            if len(full_path) > 1 and "" in full_path:  # "".split(/) becomes [""]. This is the default. In case of default, write to first parent directory. Checking if some long path is given, and no empty spaces are there in path.
+                return False, f"Invalid Filepath: {directory}, has empty spaces / illegal folder names!"
             response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))
             # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
             file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
             if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
-                self._schema['root'].append(file_info)    # At the moment, default directory is 'root' only.
-            logger.debug(f"File uploaded successfully. Message ID: {response.message_id}")
+                def helper_fnc(full_path: list, target: dict, file_info: dict):  # create all nested keys / sub directories into schema, if not present.
+                    if len(full_path) > 0:
+                        sub_dir = full_path.pop(0)
+                        if sub_dir not in target.keys():
+                            target[sub_dir] = {"root": []}
+                        if len(full_path) == 0:
+                            target[sub_dir]["root"].append(file_info)
+                        helper_fnc(full_path, target[sub_dir], file_info)
+                    return target
+                if directory == "":     # Append to default root directory if unspecified.
+                    self._schema["root"].append(file_info)
+                else:
+                    helper_fnc(full_path, self._schema, file_info)
+            logger.debug(f"File uploaded to path '{directory}' successfully. Message ID: {response.message_id}")
             self.save_schema()
             return True, response.document.file_id
         except Exception as e:
@@ -95,12 +114,12 @@ class BotActions:
             return False, str(e)
 
     def delete_file(self, message_id: int):
-        try:
+        try:    # BUG: Refactor this to support nested directories, new schema.
             res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
             if res is True:
                 for pos, file_info in enumerate(self._schema['root']):
                     if file_info['message_id'] == message_id:
-                        self._schema['root'].pop(pos)   # Remove the file_info from the schema (based on message_id)
+                        self._schema['root'].pop(pos)   # Remove the file_info from the schema (if there) (based on message_id)
                         break   # look no further.
                 self.save_schema()
                 logger.debug(f"File with Message_ID: {message_id} deleted successfully!")

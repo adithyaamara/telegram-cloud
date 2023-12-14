@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">  <!-- Bootstrap CSS CDN link -->
 </head>
 <body>
+    <!-- Display folder at top, set that as a link, it should list files, folders inside selected folder. -->
     <nav class="navbar navbar-expand-lg navbar-light fixed-top" style="background-color: #e3f2fd;">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><b>TelegramCloud:V1.0</b></a>
@@ -35,6 +36,7 @@
             <tr class="table-info">
                 <th><label for="uf">Files To Upload:</label></th>
                 <th><input type="file" name="upload_file" id="uf" multiple /></th>
+                <th><input type="text" name="upload_directory" id="ud"/></th>
                 <th><button type="submit" class="btn btn-md btn-success"> Upload </button></th>
             </tr>
         </table>
