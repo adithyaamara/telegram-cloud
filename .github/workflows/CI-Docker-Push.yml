@@ -19,5 +19,5 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         push: true
-        tags: adithyaamara/telegram-cloud:v1.${{ github.run_id }}
+        tags: adithyaamara/telegram-cloud:v1.${{ github.run_number }}
 
