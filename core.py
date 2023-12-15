@@ -19,7 +19,7 @@ class BotActions:
         self._schema_filename = 'schema.json'
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
         self._ops = SchemaManipulations()
-
+        self.VALIDATION_ACTIVE = False
         self._default_upload_directory = ""
         logger.info("Required config variables are read from env!")
 
@@ -45,7 +45,47 @@ class BotActions:
         except Exception as err:
             return False, err
 
+    def validate_job(self):   # Needs refactoring as schema changed.
+        """Works on schema, start this function as a background thread. Finally put the last validation date in schema for future reference (Display last validation date in homepage also.)"""
+        self.VALIDATION_ACTIVE = True    # disable all routes during update via a control flag variable.
+        try:
+            def process_schema(schema):
+                if isinstance(schema, dict):
+                    for key, val in schema.items():
+                        if key == "root" and isinstance(val, list):
+                            file_validate(val)  # Update the 'root' list in-place
+                        else:
+                            process_schema(val)
+                return schema
 
+            def file_validate(file_list: list[dict]):
+                for pos, file_info in enumerate(file_list.copy()):
+                    try:
+                        file_id = file_info["file_id"]
+                    except KeyError:
+                        file_list.pop(pos)
+                        logger.error(f"Ill-Formatted record found. File_ID missing. Dropping it.")
+                        continue    # no need to proceed further on this file.
+                    try:
+                        cloud_file = self.__bot.get_file(file_id=file_id)
+                        logger.debug(f"No issues found with record, Ref Files ID: {file_id}")
+                    except telegram_error.BadRequest:
+                        logger.info(f"The file no longer exists on cloud! Removing it from schema. Ref Id: {file_id}")
+                        file_list.pop(pos)
+                    file_list[pos]["size"] = size(cloud_file.file_size)     # save in KB / MB string.
+                    time.sleep(1)   # small delay to avoid DDOS scenario.
+
+            process_schema(self._schema)
+            self.save_schema()
+            # schema["meta"] = {"total_size": size(total_space_consumed), "last_validated": datetime.utcnow().timestamp()}
+            logger.info("Schema Validation completed successfully!!")
+            self.VALIDATION_ACTIVE = False
+        except Exception as err:
+            self.VALIDATION_ACTIVE = False
+            logger.error(f"Something went wrong during schema validation. Operation failed. Error: {err}")
+
+    def is_validation_active(self) -> bool:
+        return self.VALIDATION_ACTIVE
 
     def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
         try:
@@ -100,8 +140,6 @@ class BotActions:
 
 class SchemaManipulations:
     """Offload schema manipulations from other classes, provide methods for easy schema manipulation"""
-    def __init__(self) -> None:
-        self.VALIDATION_ACTIVE = False
 
     def get_sanitized_file_path(self, full_path: str) -> list[str]:
         disallowed_dir_names = ["root", "", " ", "meta"]    # meta, root are reserved keywords for our schema.
@@ -171,40 +209,15 @@ class SchemaManipulations:
             logger.error(f"Serious Problem in manipulating schema. (During Deletion? {delete}), Error: {err}")
             return False, f"Internal Error: {err}"
 
-    def validate_job(self):   # Needs refactoring as schema changed.
-        """Works on global object schema, start this function as a background thread. Finally put the last validation date in schema for future reference (Display last validation date in homepage also.)"""
-        total_space_consumed = 0    # Aggregate size of all uploaded files.
-        self.VALIDATION_ACTIVE = True    # disable all routes during update via a control flag variable.
-        try:
-            total_records = len(self._schema['root'])
-            validated_records = 0
-            for pos, file_info in enumerate(self._schema["root"]):
-                try:
-                    file_id = file_info["file_id"]
-                except KeyError:
-                    self._schema['root'].pop(pos)
-                    logger.error(f"Ill-Formatted record found. File_ID missing. Dropping it.")
-                    continue    # no need to proceed further on this file.
-                try:
-                    cloud_file = self.__bot.get_file(file_id=file_id)
-                    total_space_consumed += cloud_file.file_size
-                    logger.debug(f"No issues found with record, Ref Files ID: {file_id}")
-                except telegram_error.BadRequest:
-                    logger.info(f"The file no longer exists on cloud! Removing it from schema. Ref Id: {file_id}")
-                    self._schema['root'].pop(pos)
-                # self._schema['root'][pos]["filename"] = cloud_file.file_path.split('/')[-1]
-                self._schema['root'][pos]["size"] = size(cloud_file.file_size)     # save in KB / MB string.
-                validated_records += 1
-                logger.debug(f"{validated_records} out of {total_records} validated!!")
-                time.sleep(1)   # small delay to avoid DDOS scenario.
-
-            self._schema["meta"] = {"total_size": size(total_space_consumed), "last_validated": datetime.utcnow().timestamp()}
-            self.save_schema()   # dumps updated schema file.
-            logger.info("Schema Validation completed successfully!!")
-            self.VALIDATION_ACTIVE = False
-        except Exception as err:
-            self.VALIDATION_ACTIVE = False
-            logger.error(f"Something went wrong during schema validation. Operation failed. Error: {err}")
-
-    def is_validation_active(self) -> bool:
-        return self.VALIDATION_ACTIVE
+    def find_record_by_attribute(self, data, attr: str, attr_val: str | int):
+        if isinstance(data, dict):
+            if attr in data and data[attr] == attr_val:
+                return data
+            for value in data.values():
+                result = self.find_record_by_attribute(value, attr_val)
+                if result: return result
+        elif isinstance(data, list):
+            for item in data:
+                result = self.find_record_by_attribute(item, attr_val)
+                if result: return result
+        return None

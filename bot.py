@@ -19,7 +19,7 @@ bot = BotActions()
 @app.before_request
 def block_on_validation_in_progress():
     """call this function in first line of each route, to block traffic during schema validation process. To maintain schema.json integrity."""
-    if bot._ops.is_validation_active() is True:
+    if bot.is_validation_active() is True:
         return jsonify({"message": "No action allowed this time, A validation Job is in progress. Kindly come back later!"}), 404
 
 # Flask routes
@@ -65,9 +65,10 @@ def upload():
 def file_download(file_id):
     block_on_validation_in_progress()
     file_content, file_name_or_error = bot.download_file(file_id)
-    # file_name = ""   # Iteratively get file name from schema.
     if file_content:
-        return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name_or_error)  # same is reverted to user, with out saving locally.
+        file_info = bot._ops.find_record_by_attribute(bot._schema.copy(), "file_id", file_id)   # Iteratively get file info from schema, use file_id as attribute for matching.
+        file_name = file_info["filename"] if file_info else file_name_or_error  # If search returned a record, use file name from record. else some default name taken from telegram(Most usually it will be wrong).
+        return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name)  # same is reverted to user, with out saving locally.
     else:
         return jsonify({"message": f"Error Downloading the file: {file_name_or_error}"})
 
@@ -87,7 +88,7 @@ def delete(message_id):
 @app.route('/validate/')
 def validate_schema():
     block_on_validation_in_progress()
-    Thread(target=bot._ops.validate_job, daemon=True).start()
+    Thread(target=bot.validate_job, daemon=True).start()
     return "This will iterate through all the files in schema, and checks if they still exist in cloud. \
         Finally updates schema with only files that are still available in cloud. This will take a long time, happens in background. \
             Advised to not make any changes to cloud state meanwhile."
