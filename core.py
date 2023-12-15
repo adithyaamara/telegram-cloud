@@ -18,8 +18,9 @@ class BotActions:
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
         self._schema_filename = 'schema.json'
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
-        self.VALIDATION_ACTIVE = False
-        self._default_upload_directory = "root"
+        self._ops = SchemaManipulations()
+
+        self._default_upload_directory = ""
         logger.info("Required config variables are read from env!")
 
     def load_or_reload_schema(self):
@@ -44,7 +45,133 @@ class BotActions:
         except Exception as err:
             return False, err
 
-    def validate_job(self):
+
+
+    def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
+        try:
+            file_name = sanitize_filename(file_name)
+            res, err = self._ops.get_sanitized_file_path(directory)  # sanity check
+            if res is False:
+                return False, err   # return the error to caller.
+            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))
+            # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
+            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
+            if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
+                if directory == "":     # Append to default root directory if unspecified.
+                    self._schema["root"].append(file_info)
+                else:
+                    modified_schema, err = self._ops.manipulate_schema(directory, file_info, self._schema.copy(), False)
+                    if modified_schema is False:
+                        logger.error(f"File uploaded, but unable to add it to schema, Error: {err}")
+                        return False, err
+                    self._schema = modified_schema.copy()
+            logger.debug(f"File uploaded to path '{directory}' successfully. Message ID: {response.message_id}")
+            self.save_schema()
+            return True, response.document.file_id
+        except Exception as e:
+            logger.error(f"Error uploading file: {e}")
+            return False, str(e)
+
+    def delete_file(self, full_path: str, message_id: int):
+        try:
+            res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
+            if res is True:
+                modified_schema, err = self._ops.manipulate_schema(full_path, {"message_id": int(message_id)}, self._schema.copy(), delete=True)
+                if modified_schema is False:
+                    return False, err
+                self._schema = modified_schema.copy()
+                self.save_schema()
+                logger.debug(f"File with Message_ID: {message_id} deleted successfully!")
+                return True, None
+        except Exception as e:
+            logger.error(f"Error deleting file: {e}")
+            return False, e
+
+    def download_file(self, file_id: str):
+        try:
+            file_pointer = self.__bot.get_file(file_id)
+            file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
+            logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
+            return file_content, file_pointer.file_path.split('/')[-1]
+        except Exception as e:
+            logger.error(f"Error downloading the file: {e}")
+            return False, e
+
+
+class SchemaManipulations:
+    """Offload schema manipulations from other classes, provide methods for easy schema manipulation"""
+    def __init__(self) -> None:
+        self.VALIDATION_ACTIVE = False
+
+    def get_sanitized_file_path(self, full_path: str) -> list[str]:
+        disallowed_dir_names = ["root", "", " ", "meta"]    # meta, root are reserved keywords for our schema.
+        if full_path == "":     # callers should handle this as root directory.
+            return full_path, ""
+        if full_path[0] == "/": full_path = full_path[1:]    # remove first '/' if present.
+        if full_path[-1] == "/": full_path = full_path[:-1]    # remove last '/' if present.
+        full_path: list = sanitize_filepath(full_path).split('/')
+        if len(full_path) > 1 and "" in full_path:  # "".split(/) becomes [""]. This is the default. In case of default, write to first parent directory. Checking if some long path is given, and no empty spaces are there in path.
+            logger.error(f"Invalid Path Supplied, Unable to sanitize: {full_path}")
+            return False, f"Invalid Filepath: {full_path}, has empty spaces / illegal folder names!"
+        if any(sub_dir in disallowed_dir_names for sub_dir in full_path):
+            return False, f"Path {full_path} contains invalid sub directory names. Not allowed: {disallowed_dir_names}"
+        return full_path, ""
+
+    def get_contents_in_directory(self, directory: str, ret_structure: dict, files_only: bool=False) -> dict | list:
+        """Returns the dictionary item by navigating to the given directory (nested)."""
+        full_path, err = self.get_sanitized_file_path(directory)  # get sanitized file path from a directory string.
+        if full_path is False:  # Invalid path.
+            return full_path, err   # return error.
+        for sub_dir in full_path:
+            if sub_dir not in ret_structure:
+                return False, f"Invalid Path - {directory}!!"
+            ret_structure = ret_structure[sub_dir]
+        if files_only:
+            return ret_structure["root"], ""    # no error. Just return files.
+        else:
+            try:
+                ret_structure.pop("meta")   # reserved folder. Not to be displayed to user.
+            except KeyError:
+                pass
+            return ret_structure, ""    # no error. Return files, folders inside given directory.
+
+    def manipulate_schema(self, full_path: str, file_info: dict, schema: dict, delete: bool):
+        "iteratively creates / navigates a nested directory structure in schema, adds the given file_info dict to the nested path, attempts to delete the same from schema if del is set to True. returns updated schema."
+        def helper_fnc(full_path: list, target: dict, file_info: dict):  # create all nested keys / sub directories into schema, if not present.
+            if len(full_path) > 0:
+                sub_dir = full_path.pop(0)
+                if sub_dir not in target.keys():    # this is not a possible scenario during delete.
+                    target[sub_dir] = {"root": []}
+                if len(full_path) == 0:     # if previously fetched sub_dir was the last in path, add the file to that sub dir only. "root" is a list in each directory that holds file_infos.
+                    if delete:  # to delete. No other attribute other than `message_id` needs to be supplied for deletion.
+                        for pos, info in enumerate(target[sub_dir]["root"].copy()):
+                            if info["message_id"] == file_info["message_id"]:     # Delete based on supplied message_id.
+                                target[sub_dir]["root"].pop(pos)    # remove the record for this message_id.
+                                break   # once found and deleted return from loop.
+                    else:   # to add
+                        target[sub_dir]["root"].append(file_info)   # Whole target will be returned in next run, as the primary check was len(full_path) > 0. Recursion ends.
+                helper_fnc(full_path, target[sub_dir], file_info)
+            return target
+        try:
+            sanitized_path, err = self.get_sanitized_file_path(full_path)
+            if sanitized_path is False:
+                logger.error(f"Schema manipulation aborted, as path sanity check failed for: {full_path}")
+                return False, err
+            if sanitized_path == "" and delete:   # Special code for delete in root.
+                logger.debug("Attempting to delete a file in root folder!!")
+                for pos, info in enumerate(schema.copy()["root"]):
+                    if info["message_id"] == int(file_info["message_id"]):
+                        schema["root"].pop(pos)
+                modified_schema = schema
+            else:
+                logger.debug(f"Attempting to delete stale file from schema. MessageId: {file_info['message_id']}, Path: {full_path}")
+                modified_schema = helper_fnc(sanitized_path, schema.copy(), file_info)
+            return modified_schema, ""   # at the end of recursion, we will get updated schema. Starting schema manipulation on a copy of schema to be safe.
+        except Exception as err:
+            logger.error(f"Serious Problem in manipulating schema. (During Deletion? {delete}), Error: {err}")
+            return False, f"Internal Error: {err}"
+
+    def validate_job(self):   # Needs refactoring as schema changed.
         """Works on global object schema, start this function as a background thread. Finally put the last validation date in schema for future reference (Display last validation date in homepage also.)"""
         total_space_consumed = 0    # Aggregate size of all uploaded files.
         self.VALIDATION_ACTIVE = True    # disable all routes during update via a control flag variable.
@@ -79,76 +206,5 @@ class BotActions:
             self.VALIDATION_ACTIVE = False
             logger.error(f"Something went wrong during schema validation. Operation failed. Error: {err}")
 
-    def is_validation_active(self):
+    def is_validation_active(self) -> bool:
         return self.VALIDATION_ACTIVE
-
-    def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
-        try:
-            file_name = sanitize_filename(file_name)
-            if directory[0] == "/": directory = directory[1:]    # remove first / if present.
-            full_path = sanitize_filepath(directory).split('/')
-            if len(full_path) > 1 and "" in full_path:  # "".split(/) becomes [""]. This is the default. In case of default, write to first parent directory. Checking if some long path is given, and no empty spaces are there in path.
-                return False, f"Invalid Filepath: {directory}, has empty spaces / illegal folder names!"
-            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))
-            # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
-            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
-            if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
-                def helper_fnc(full_path: list, target: dict, file_info: dict):  # create all nested keys / sub directories into schema, if not present.
-                    if len(full_path) > 0:
-                        sub_dir = full_path.pop(0)
-                        if sub_dir not in target.keys():
-                            target[sub_dir] = {"root": []}
-                        if len(full_path) == 0:
-                            target[sub_dir]["root"].append(file_info)
-                        helper_fnc(full_path, target[sub_dir], file_info)
-                    return target
-                if directory == "":     # Append to default root directory if unspecified.
-                    self._schema["root"].append(file_info)
-                else:
-                    helper_fnc(full_path, self._schema, file_info)
-            logger.debug(f"File uploaded to path '{directory}' successfully. Message ID: {response.message_id}")
-            self.save_schema()
-            return True, response.document.file_id
-        except Exception as e:
-            logger.error(f"Error uploading file: {e}")
-            return False, str(e)
-
-    def delete_file(self, message_id: int):
-        try:    # BUG: Refactor this to support nested directories, new schema.
-            res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
-            if res is True:
-                for pos, file_info in enumerate(self._schema['root']):
-                    if file_info['message_id'] == message_id:
-                        self._schema['root'].pop(pos)   # Remove the file_info from the schema (if there) (based on message_id)
-                        break   # look no further.
-                self.save_schema()
-                logger.debug(f"File with Message_ID: {message_id} deleted successfully!")
-                return True
-        except Exception as e:
-            logger.error(f"Error deleting file: {e}")
-            return False
-
-    def download_file(self, file_id: str):
-        try:
-            file_pointer = self.__bot.get_file(file_id)
-            file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
-            logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
-            file_name = None
-            for info in self._schema['root']:
-                if info['file_id'] == file_id:
-                    file_name = info["filename"]
-                    break
-            if file_name is not None:
-                return file_content, file_name
-            else:
-                logger.error(f"Schema problem detected, file info not found for an ID.")
-                return file_content, file_pointer.file_path.split('/')[-1]
-        except Exception as e:
-            logger.error(f"Error downloading the file: {e}")
-            return False, e
-
-
-class SchemaManipulations:
-    """Offload schema manipulations from other classes, provide methods for easy schema manipulation"""
-    def __init__(self) -> None:
-        pass

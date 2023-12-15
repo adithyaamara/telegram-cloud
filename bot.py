@@ -19,31 +19,32 @@ bot = BotActions()
 @app.before_request
 def block_on_validation_in_progress():
     """call this function in first line of each route, to block traffic during schema validation process. To maintain schema.json integrity."""
-    if bot.is_validation_active() is True:
+    if bot._ops.is_validation_active() is True:
         return jsonify({"message": "No action allowed this time, A validation Job is in progress. Kindly come back later!"}), 404
 
 # Flask routes
 @app.route('/', methods=['GET'])
 def index():
     block_on_validation_in_progress()
-    directory = request.args.get('directory', None)  # Directory to navigate to.
+    directory = request.args.get('target_directory', None)  # Directory to navigate to.
     if directory is None:   # If dir not specified, use home.
-        return render_template('index.html', files=bot._schema["root"], working_directory=bot._default_upload_directory, total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
+        folders = list(bot._schema.keys())
+        folders.remove("root")  # reserved for storing files.
+        folders.remove("meta")  # reserved for metadata in root.
+        return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
     else:   # BUG: Write re-usable function to sanitize file paths.
-        if directory[0] == "/": directory = directory[1:]    # remove first '/' if present.
-        full_path = sanitize_filepath(directory).split('/')
-        ret_structure = bot._schema.copy()
-        for sub_dir in full_path:
-            if sub_dir not in ret_structure:
-                return jsonify({"message": f"Invalid Path - {directory}!!"})
-            ret_structure = ret_structure[sub_dir]
-        return render_template('index.html', files=ret_structure["root"], working_directory=directory, total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
+        ret_structure, err = bot._ops.get_contents_in_directory(directory, bot._schema.copy(), files_only=False)  # get dict item from schema in a given directory path. COntains both files and folders.
+        if ret_structure is not False:
+            folders = list(ret_structure.keys())
+            folders.remove("root")
+            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
+        return jsonify({"error": err})
 
 @app.route('/upload/', methods=['POST'])
 def upload():
     block_on_validation_in_progress()
     files = request.files.getlist('upload_file')
-    target_directory = request.form.get('upload_directory', "")  # It will be uploaded to root folder if nothing is specified.
+    target_directory = request.form.get('target_directory', "")  # It will be uploaded to root folder if nothing is specified.
     success_count = 0
     error_messages = []
     if len(files) > 0:
@@ -64,6 +65,7 @@ def upload():
 def file_download(file_id):
     block_on_validation_in_progress()
     file_content, file_name_or_error = bot.download_file(file_id)
+    # file_name = ""   # Iteratively get file name from schema.
     if file_content:
         return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name_or_error)  # same is reverted to user, with out saving locally.
     else:
@@ -73,18 +75,19 @@ def file_download(file_id):
 def delete(message_id):
     block_on_validation_in_progress()
     logger.debug(f"Attempting to delete files in message with ID: {message_id}!")
-    success = bot.delete_file(message_id)
-    if success:
+    target_directory = request.form.get('target_directory', "")
+    success, err = bot.delete_file(target_directory, message_id)     # supply directory where file is located, message id to delete. [Feature: Add support for deleting message id with out mentioning directory. (needs iterative search)]
+    if success is not False:
         logger.debug(f"Deleted the files in message id: {message_id}")
         return redirect(url_for('index'))
     else:
         logger.error(f"Error deleting file / message with ID: {message_id}")
-        return render_template('error.html', error_message=f"Error deleting file / message with ID: {message_id}")
+        return render_template('error.html', error_message=f"Error deleting file / message with ID: {message_id}. Error: {err}")
 
 @app.route('/validate/')
 def validate_schema():
     block_on_validation_in_progress()
-    Thread(target=bot.validate_job, daemon=True).start()
+    Thread(target=bot._ops.validate_job, daemon=True).start()
     return "This will iterate through all the files in schema, and checks if they still exist in cloud. \
         Finally updates schema with only files that are still available in cloud. This will take a long time, happens in background. \
             Advised to not make any changes to cloud state meanwhile."

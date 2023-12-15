@@ -36,7 +36,7 @@
             <tr class="table-info">
                 <th><label for="uf">Files To Upload:</label></th>
                 <th><input type="file" name="upload_file" id="uf" multiple /></th>
-                <th><input type="text" name="upload_directory" id="ud"/></th>
+                <th><input type="text" name="target_directory" id="ud", value="{{ working_directory }}"/></th>      <!-- Working directory is default value for upload, unless explicitly specified  -->
                 <th><button type="submit" class="btn btn-md btn-success"> Upload </button></th>
             </tr>
         </table>
@@ -50,13 +50,19 @@
             </tr>
         </thead>
         <tbody>
+            {% for folder in folders %}
+            <tr>
+                <!-- Folder is a link to navigate to it. target directory = current_directory + actual folder name. -->
+                <td colspan="3"> <a href="{{ url_for('index') }}?target_directory={{ working_directory }}/{{ folder }}" class="link-primary"> {{ folder }} </a> </td>
+            </tr>
+            {% endfor %}
             {% for file_info in files %}
                 <tr>
                     <td>{{ file_info.filename }}</td>
                     <td>{{ file_info.size }}</td>
-
                     <td>
                         <form action="{{ url_for('delete', message_id=file_info.message_id) }}" method="post" style="display: inline;">
+                            <input type="text" name="target_directory" id="ud", value="{{ working_directory }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
                             <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure want to delete this file? There is no taking it back!!')">Delete</button>
                         </form>
                         <a href="{{ url_for('file_download', file_id=file_info.file_id) }}" class="btn btn-outline-primary">Download</a>
@@ -66,17 +72,19 @@
         </tbody>
     </table>
     </div>
-    <footer class="fixed-bottom" style="background-color: rgb(237, 219, 198);">
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-md-6 text-left">
-                    <p><b>Total Space Consumed: {{ total_size }}</b></p>
-                </div>
-                <div class="col-md-6 text-right">
-                    <p>Schema Last Validated: {{ last_validated }} UTC</p>
+    {% if working_directory == "" %}    <!-- Only show at home page -->
+        <footer class="fixed-bottom" style="background-color: rgb(237, 219, 198);">
+            <div class="container">
+                <div class="row align-items-center">
+                    <div class="col-md-6 text-left">
+                        <p><b>Total Space Consumed: {{ total_size }}</b></p>
+                    </div>
+                    <div class="col-md-6 text-right">
+                        <p>Schema Last Validated: {{ last_validated }} UTC</p>
+                    </div>
                 </div>
             </div>
-        </div>
-    </footer>
+        </footer>
+    {% endif %}
 </body>
 </html>
