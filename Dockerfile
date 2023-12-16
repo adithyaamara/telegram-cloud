@@ -10,7 +10,11 @@ COPY certs/ /svc/certs/
 COPY templates/ /svc/templates/
 COPY bot.py /svc/bot.py
 COPY core.py /svc/core.py
-COPY start.sh /svc/start.sh
+
+# Writing cert generation commands manually in docker file. [TEMP CHANGE] -> Copying shell script into container gives error.
+RUN openssl genrsa -out certs/key.pem 2048
+RUN openssl req -new -key certs/key.pem -out certs/csr.pem -batch
+RUN openssl x509 -req -days 365 -in certs/csr.pem -signkey certs/key.pem -out certs/cert.pem
 
 EXPOSE 443
-CMD [ "bash", "start.sh"]
+CMD [ "python", "-m", "bot"]
