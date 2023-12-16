@@ -5,7 +5,8 @@
 ## Usage
 
 - Use `bot father` in telegram to create a new bot, save the `api_key` generated.
-- Create a new **private channel** in telegram.
+- Create a new **private channel** in telegram. Open telegram on web, navigate to this private channel.
+- From the URL, copy last part, a number that starts with -100. This is your channel ID.
 - Add newly created bot as an admin to this private channel. (So that bot can upload files to private channel.)
 - Clone code, Create a .env file in current directory with below variables set
 - Run `source start.sh` / `bash start.sh` in terminal to run the program in local.
@@ -20,6 +21,7 @@
   ```
 
 ## Features
+
 - Upload, Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
 - Simple UI, Shows the total cloud storage space consumed using this app.
 - If telegram files uploaded using this app are deleted manually using app / web, `Revalidate Schema` feature will check entire schema and removes what is removed from channel.
