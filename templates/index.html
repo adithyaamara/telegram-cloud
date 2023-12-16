@@ -30,6 +30,9 @@
             </tr>
         </thead>
         <tbody>
+            <div class="alert alert-warning" role="alert">
+                <b>Folders: {{ folders | length }}, Files: {{ files | length }} [ Working Directory is "{{ working_directory }}"]</b>
+            </div>
             {% for folder in folders %}
             <tr>
                 <!-- Folder is a link to navigate to it. target directory = current_directory + actual folder name. -->
