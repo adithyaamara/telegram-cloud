@@ -8,27 +8,7 @@
 </head>
 <body>
     <!-- Display folder at top, set that as a link, it should list files, folders inside selected folder. -->
-    <nav class="navbar navbar-expand-lg navbar-light fixed-top" style="background-color: #e3f2fd;">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#"><b>TelegramCloud:V1.0</b></a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAltMarkup" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
-              <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNavAltMarkup">
-              <div class="navbar-nav">
-                <a class="nav-link active" aria-current="page" href="{{ url_for('index') }}">Home</a>
-              </div>
-              <div class="navbar-nav">
-                <a href="/persist/upload/" class="nav-link active" onclick="return confirm('This will upload current file schema to cloud. \n Make note of the received file_id to recover later. \n Do you wish to proceed?')"> Persist </a>
-              </div>
-              <div class="navbar-nav">
-                <a href="/persist/download/" class="nav-link active"> Recover </a>
-              </div>
-            </div>
-            <a href="/validate/" class="btn btn-primary ml-auto" onclick="return confirm('This might take a long time. Do you wish to proceed?')"> Re-Validate Schema </a>
-          </div>
-    </nav>
-    <br>
+    {% include 'navbar.html' %}
     <div class="container mt-5">
     <!-- <h3>Uploaded Files</h3> -->
     <form action="{{ url_for('upload') }}" method="post" class="form" enctype="multipart/form-data">

@@ -16,8 +16,9 @@ class BotActions:
         self.__bot_token = env["API_KEY"]         # Raises key error if not found.
         self.__channel_id = env["CHANNEL_ID"]     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
-        self._schema_filename = 'schema.json'
+        self._schema_filename = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
+        self.save_schema()  # SAVE SCHEMA ONCE At start
         self._ops = SchemaManipulations()
         self.VALIDATION_ACTIVE = False
         self._default_upload_directory = ""

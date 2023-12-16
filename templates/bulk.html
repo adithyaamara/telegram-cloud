@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Upload</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+
+        #status {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    {% include 'navbar.html' %}
+    <div class="container">
+        <div class="mb-3">
+            <label for="fileInput" class="form-label">Choose Folder/Files</label>
+            <input type="file" id="fileInput" class="form-control" multiple webkitdirectory directory>
+        </div>
+
+        <button onclick="submitForm()" class="btn btn-primary">Submit</button>
+
+        <div class="mt-3">
+            <textarea id="status" rows="10" class="form-control" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        function submitForm() {
+            const fileInput = document.getElementById('fileInput');
+            const statusTextArea = document.getElementById('status');
+            const files = fileInput.files;
+
+            if (files.length === 0) {
+                alert('Please choose at least one file or folder.');
+                return;
+            }
+
+            let fileIndex = 0;
+
+            function uploadFile(file) {
+                const formData = new FormData();
+                const pathComponents = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [];
+                const directory = pathComponents.slice(0, -1).join('/');
+                const fileName = pathComponents.slice(-1)[0] || file.name;
+                const serverUrl = "{{ url_for('upload') }}";
+                formData.append('target_directory', directory);
+                formData.append('upload_file', file, fileName);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', serverUrl, true);
+
+                xhr.upload.onprogress = function (e) {
+                    if (e.lengthComputable) {
+                        const percent = (e.loaded / e.total) * 100;
+                        statusTextArea.value = `Uploading ${fileIndex + 1} out of ${files.length} files, path: ${directory}, file: ${file.name}, Progress: ${percent.toFixed(2)}%\n`;
+                    }
+                };
+
+                xhr.onload = function () {
+                    if (xhr.status === 200) {
+                        fileIndex++;
+                        if (fileIndex < files.length) {
+                            uploadFile(files[fileIndex]);
+                        } else {
+                            statusTextArea.value += 'All files uploaded successfully!';
+                        }
+                    } else {
+                        statusTextArea.value += `Error uploading file ${file.name}. Server response: ${xhr.status} - ${xhr.statusText}\n`;
+
+                        const headers = xhr.getAllResponseHeaders();
+                        console.log('Response Headers:', headers);
+
+                        fileIndex++;
+                        if (fileIndex < files.length) {
+                            uploadFile(files[fileIndex]);
+                        } else {
+                            statusTextArea.value += 'All files uploaded successfully!';
+                        }
+                    }
+                };
+
+                xhr.onerror = function () {
+                    statusTextArea.value += `Error uploading file ${file.name}. There was a network error.\n`;
+
+                    fileIndex++;
+                    if (fileIndex < files.length) {
+                        uploadFile(files[fileIndex]);
+                    } else {
+                        statusTextArea.value += 'All files uploaded successfully!';
+                    }
+                };
+
+                xhr.send(formData);
+            }
+
+            uploadFile(files[fileIndex]);
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

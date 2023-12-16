@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     volumes:
-      - schemaVol:/svc/
+      - schemaVol:/svc/schema/
     networks:
       - appNetwork
 

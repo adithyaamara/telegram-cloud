@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify
 from threading import Thread
 from dotenv import load_dotenv
-from pathvalidate import sanitize_filepath
 from core import BotActions
 from datetime import datetime
 import io
@@ -40,11 +39,16 @@ def index():
             return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
         return jsonify({"error": err})
 
+@app.route('/bulk-upload/', methods=['GET'])    # For full folder uploads.
+def bulk():
+    return render_template('bulk.html')
+
 @app.route('/upload/', methods=['POST'])
 def upload():
     block_on_validation_in_progress()
     files = request.files.getlist('upload_file')
     target_directory = request.form.get('target_directory', "")  # It will be uploaded to root folder if nothing is specified.
+    logger.debug(f"Request received for uploading {len(files)} file[s] to directory: {target_directory}")
     success_count = 0
     error_messages = []
     if len(files) > 0:
@@ -120,5 +124,5 @@ def recover_schema():
     return render_template('error.html', error_message='Something went wrong during schema recovery. Please try again!!')
 
 if __name__ == '__main__':
-    logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'INFO').upper())
+    logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'DEBUG').upper())
     app.run(port=443, host='0.0.0.0', debug=True, ssl_context=context)

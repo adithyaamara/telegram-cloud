@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">  <!-- Bootstrap CSS CDN link -->
 </head>
 <body>
+{% include 'navbar.html' %}
+<br>
 <h3>Please Enter the File ID you got after schema upload!!</h3>
 <form class="form" action="/persist/download" method="post">
     <label for="file_id">File ID:</label>
