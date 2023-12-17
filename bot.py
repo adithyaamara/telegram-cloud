@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify, flash
 from threading import Thread
 from dotenv import load_dotenv
 from core import BotActions
@@ -13,6 +13,7 @@ logger = logging.getLogger()
 context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 context.load_cert_chain('certs/cert.pem', 'certs/key.pem')
 app = Flask(__name__)
+app.secret_key = 'your_secret_key_here'  # Optional for now, For Sake of flash messages.
 bot = BotActions()
 
 @app.before_request
@@ -60,10 +61,12 @@ def upload():
                 error_messages.append(error_message)
                 logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
         if success_count == len(files):
-            return redirect(url_for("index"))
+            flash("Recent Upload of File[s] Successful!", "success")
+            return redirect(f"{url_for('index')}?target_directory={target_directory}")  # redirect to same location where the request came from.
         else:
             return render_template('error.html', error_message=f"Failed to upload {len(files) - success_count} out of {len(files)} selected!!: Errors: {error_messages}")
-    return redirect(url_for("index"))
+    flash("Please select at-least one file to upload!!", "warning")
+    return redirect(f"{url_for('index')}?target_directory={target_directory}")
 
 @app.route('/download/<file_id>')
 def file_download(file_id):
@@ -84,7 +87,8 @@ def delete(message_id):
     success, err = bot.delete_file(target_directory, message_id)     # supply directory where file is located, message id to delete. [Feature: Add support for deleting message id with out mentioning directory. (needs iterative search)]
     if success is not False:
         logger.debug(f"Deleted the files in message id: {message_id}")
-        return redirect(url_for('index'))
+        flash("File deleted successfully!", "success")  # Select category as bootstrap button class, other wise an ugly alert is displayed! Color of alert is based in class of message chosen.
+        return redirect(f"{url_for('index')}?target_directory={target_directory}")  # redirect to same location where the delete request came from.
     else:
         logger.error(f"Error deleting file / message with ID: {message_id}")
         return render_template('error.html', error_message=f"Error deleting file / message with ID: {message_id}. Error: {err}")
@@ -101,7 +105,7 @@ def validate_schema():
 def persist_schema():
     block_on_validation_in_progress()
     try:
-        success, file_id = bot.upload_file(file=open(bot._schema_filename, 'rb'), file_name=bot._schema_filename, update_schema=False)
+        success, file_id = bot.upload_file(file=open(bot._schema_filename, 'rb'), file_name=bot._schema_filename.split('/')[-1], update_schema=False)
         if success is True:
             return jsonify({"message": f"Schema Upload successful, Use {file_id} to recover!"})
     except Exception as err:

@@ -1,4 +1,4 @@
-from telegram import Bot, InputFile, error as telegram_error
+from telegram import Bot, InputFile, error as telegram_error # InputMediaDocument - Used for editing media in a message id.
 from os import environ as env
 from werkzeug import datastructures
 from datetime import datetime
