@@ -9,7 +9,7 @@
 - From the URL, copy last part, a number that starts with -100. This is your channel ID.
 - Add newly created bot as an admin to this private channel. (So that bot can upload files to private channel.)
 - Clone code, Create a .env file in current directory with below variables set
-- Run `source start.sh` / `bash start.sh` in terminal to run the program in local.
+- Run `source run.sh` / `bash run.sh` in terminal to run the program in local.
     > Access Homepage at: `localhost:443` [SSL Enabled]
 - To run as container, Run `docker-compose up -d`, access homepage at `machine-ip-or-hostname:443`
     > .env can be deleted once compose setup starts up.
@@ -18,8 +18,8 @@
   API_KEY="get this api key from telegram botfather"
   CHANNEL_ID="channel id which will be used for file storage"
   # Below 2 env vars creates a user for login. Defaults are used if not specified (Defaults: user, password).
-  APP_USER_NAME="Rockstart123"
-  APP_PASSWORD="Rockstart123"
+  APP_USER_NAME="SomeUserName-Use the same during login"
+  APP_PASSWORD="SomePassword-Use the same during login"
   LOGGING_LEVEL="DEBUG"
   ```
 
