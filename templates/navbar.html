@@ -17,8 +17,11 @@
           <div class="navbar-nav">
             <a href="/bulk-upload/" class="nav-link active"> Bulk Upload </a>
           </div>
+          <div class="navbar-nav">
+            <a href="/validate/" class="btn btn-primary ml-auto" onclick="return confirm('This actions ensures that all elements listed in your directories are still present in telegram or not, removes outdated elements.\nThis might take a long time.\nDo you wish to proceed?')"> Re-Validate Schema </a>
+          </div>
         </div>
-        <a href="/validate/" class="btn btn-primary ml-auto" onclick="return confirm('This might take a long time. Do you wish to proceed?')"> Re-Validate Schema </a>
+        <a href="/logout" class="btn btn-danger ml-auto" onclick="return confirm('Are you sure you want to logout?')"> Logout </a>
       </div>
 </nav>
 <br><br>
