@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify, flash
+from flask_login import LoginManager, login_user, UserMixin, login_required, logout_user
 from threading import Thread
 from dotenv import load_dotenv
 from core import BotActions
@@ -10,11 +11,52 @@ import logging
 load_dotenv()
 logger = logging.getLogger()
 
+# Fetch temporary user credentials for app login, chosen by user, set to default if unspecified.
+temp_app_username = os.getenv("APP_USER_NAME", "user")
+temp_app_password = os.getenv("APP_PASSWORD", "password")
+
 context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 context.load_cert_chain('certs/cert.pem', 'certs/key.pem')
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Optional for now, For Sake of flash messages.
-bot = BotActions()
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'  # Specify the login route, otherwise auto-redirect to login page won't work.
+
+bot = BotActions()  # Core telegram interaction functions.
+
+class User(UserMixin):
+    def __init__(self, user_id):
+        self.id = user_id
+
+def authenticate_user(username, password):
+    # Replace this with your actual user authentication logic
+    if username == temp_app_username and password == temp_app_password:
+        return User(1)  # User id is always 1.
+    return None
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User(user_id)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = authenticate_user(request.form['username'], request.form['password'])
+        if user:
+            login_user(user)  # Log in the user
+            # flash('Login successful!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid credentials', 'danger')
+
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Logout successful!', 'success')
+    return redirect(url_for('login'))
 
 @app.before_request
 def block_on_validation_in_progress():
@@ -24,6 +66,7 @@ def block_on_validation_in_progress():
 
 # Flask routes
 @app.route('/', methods=['GET'])
+@login_required
 def index():
     block_on_validation_in_progress()
     directory = request.args.get('target_directory', None)  # Directory to navigate to.
@@ -41,10 +84,12 @@ def index():
         return jsonify({"error": err})
 
 @app.route('/bulk-upload/', methods=['GET'])    # For full folder uploads.
+@login_required
 def bulk():
     return render_template('bulk.html')
 
 @app.route('/upload/', methods=['POST'])
+@login_required
 def upload():
     block_on_validation_in_progress()
     files = request.files.getlist('upload_file')
@@ -62,13 +107,14 @@ def upload():
                 logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
         if success_count == len(files):
             flash("Recent Upload of File[s] Successful!", "success")
-            return redirect(f"{url_for('index')}?target_directory={target_directory}")  # redirect to same location where the request came from.
         else:
-            return render_template('error.html', error_message=f"Failed to upload {len(files) - success_count} out of {len(files)} selected!!: Errors: {error_messages}")
+           flash(f"Failed to upload {len(files) - success_count} out of {len(files)} selected!!: Errors: {error_messages}", "danger")   # danger specifies that alert is displayed in red.
+        return redirect(f"{url_for('index')}?target_directory={target_directory}")  # redirect to same location where the request came from.
     flash("Please select at-least one file to upload!!", "warning")
     return redirect(f"{url_for('index')}?target_directory={target_directory}")
 
 @app.route('/download/<file_id>')
+@login_required
 def file_download(file_id):
     block_on_validation_in_progress()
     file_content, file_name_or_error = bot.download_file(file_id)
@@ -80,6 +126,7 @@ def file_download(file_id):
         return jsonify({"message": f"Error Downloading the file: {file_name_or_error}"})
 
 @app.route('/delete/<message_id>', methods=['POST'])
+@login_required
 def delete(message_id):
     block_on_validation_in_progress()
     logger.debug(f"Attempting to delete files in message with ID: {message_id}!")
@@ -94,6 +141,7 @@ def delete(message_id):
         return render_template('error.html', error_message=f"Error deleting file / message with ID: {message_id}. Error: {err}")
 
 @app.route('/validate/')
+@login_required
 def validate_schema():
     block_on_validation_in_progress()
     Thread(target=bot.validate_job, daemon=True).start()
@@ -102,6 +150,7 @@ def validate_schema():
             Advised to not make any changes to cloud state meanwhile."
 
 @app.route('/persist/upload/', methods=['GET'])
+@login_required
 def persist_schema():
     block_on_validation_in_progress()
     try:
@@ -113,6 +162,7 @@ def persist_schema():
     return render_template('error.html', error_message=file_id)  # This is not file_id but error if success is False.
 
 @app.route('/persist/download/', methods=['GET', 'POST'])
+@login_required
 def recover_schema():
     block_on_validation_in_progress()
     if request.method == 'GET':
@@ -122,9 +172,11 @@ def recover_schema():
         if file_content:
             bot.save_schema(file_content)
             logger.info(f"Schema recovery successful!")
+            flash("Schema recovery successful!", "success")
             return redirect(url_for('index'))
     except Exception as err:
         logger.error(f"Something went wrong recovering schema from cloud: {err}")
+        flash("Something went wrong recovering schema from cloud", "danger")
     return render_template('error.html', error_message='Something went wrong during schema recovery. Please try again!!')
 
 if __name__ == '__main__':

@@ -4,3 +4,4 @@ werkzeug==2.2.3
 python-dotenv==0.20.0
 hurry.filesize==0.9
 pathvalidate==3.2.0
+Flask-Login==0.6.3

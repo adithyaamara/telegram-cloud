@@ -17,11 +17,15 @@
   ```env
   API_KEY="get this api key from telegram botfather"
   CHANNEL_ID="channel id which will be used for file storage"
+  # Below 2 env vars creates a user for login. Defaults are used if not specified (Defaults: user, password).
+  APP_USER_NAME="Rockstart123"
+  APP_PASSWORD="Rockstart123"
   LOGGING_LEVEL="DEBUG"
   ```
 
 ## Features
 
+- Simple one-user login functionality. [Created from secrets specified in .env]
 - Upload, Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
 - Simple UI, Shows the total cloud storage space consumed using this app.
 - If telegram files uploaded using this app are deleted manually using app / web, `Revalidate Schema` feature will check entire schema and removes what is removed from channel.
@@ -35,8 +39,8 @@
 ## Feature Addition
 
 - Schema Backup
-    - Now migrating app from one machine to another is easy.
-    - Use `persist` button from home page to upload your current schema to telegram itself,
-      which will give you a `file_id` as response,  **you need to save it somewhere.(It will be shown only once)**
-    - Once you start the server in new machine, Use the same file_id to later recover this schema using `recover` button in homepage.
-      > This will overwrite any schema changes you have made after previous `persist` (In new / old machine). Recovers schema to the point where it was backed up.
+  - Now migrating app from one machine to another is easy.
+  - Use `persist` button from home page to upload your current schema to telegram itself,
+    which will give you a `file_id` as response,  **you need to save it somewhere.(It will be shown only once)**
+  - Once you start the server in new machine, Use the same file_id to later recover this schema using `recover` button in homepage.
+    > This will overwrite any schema changes you have made after previous `persist` (In new / old machine). Recovers schema to the point where it was backed up.
