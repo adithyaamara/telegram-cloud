@@ -38,6 +38,19 @@
 
 ## Feature Addition
 
+- Bulk Upload / Download CLI tool
+  - Run `python backupper.py --help` to get started, follow the help content provided by CLI.
+  - To Upload a local folder: `python backupper.py upload --path C:/Users/username/Desktop/ImportantFiles [--path_in_server Backup]  [--dry_run]`
+    - Uploads all sub-directories, files in the local folder `ImportantFiles` to a folder in server named `Backup`.
+    - `path_in_server` is optional to specify, default if unspecified will create `ImportantFiles` folder in root directory.
+    - `--dry_run` Specifying this will just print summary of uploads, but doesn't actually upload anything. It is better to run using this arg first to check if
+      everything is as expected or not, later run without specifying this argument to do the actual uploads to server.
+  - To download a directory in server to local: `python backupper.py download --path_in_server Backup/ImportantFiles [--path C:/Users/username/Downloads] [--dry_run]`
+    - `path_in_server` - specify the folder path in server that needs to be downloaded. `path` is optional, Uses `./Downloads` in current directory as default.
+    - `--dry_run` - To just see download summary, not to actual download anything. A harmless trial run. Do not specify this if you actually want to download.
+  > This tool currently only works if you are running the server not from docker but as a standalone python server.
+  > This is because this cli tool directly invokes `BotActions` class, the updated schema after upload action will be from local `schema/` folder.
+
 - Schema Backup
   - Now migrating app from one machine to another is easy.
   - Use `persist` button from home page to upload your current schema to telegram itself,
