@@ -82,7 +82,7 @@ def download(path: str, path_in_server: str, dry_run: bool, force: bool):
         def process_sub_schema(schema_dict: dict, base_path="./Downloads/", path_in_server: str = ""):
             """Iterates through all nested keys in given schema dictionary, adds each file in each sub_directory to file_list. Same can be looped through during download"""
             for key, value in schema_dict.items():
-                current_path = os.path.join(base_path, path_in_server, key) if key != "root" else base_path  # root key doesn't need to be created.
+                current_path = os.path.join(base_path, path_in_server, key) if key != "root" else os.path.join(base_path, path_in_server)  # root key doesn't need to be created.
                 if isinstance(value, dict):
                     process_sub_schema(value, current_path)
                 elif key == "root" and isinstance(value, list):
