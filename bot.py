@@ -80,13 +80,20 @@ def index():
         if ret_structure is not False:
             folders = list(ret_structure.keys())
             folders.remove("root")
-            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
+            directory_parts = []
+            path_str = ""
+            for path_item in directory.split('/'):  # Building breadcrumb target_directory paths for easy navigation.
+                if path_item != "":  # If path_item is "", an extra / is displayed in breadcrumb. We don;t even allow empty folder names to be created anyway.
+                    path_str = path_str + '/' + path_item
+                    directory_parts.append((path_item, path_str))   # read same way in template. path_item is folder name displayed in bread crumb (ex: sample), path_str is full path to reach that folder (ex: /bkp/folder/sample).
+            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory, directory_parts=directory_parts)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
         return jsonify({"error": err})
 
 @app.route('/bulk-upload/', methods=['GET'])    # For full folder uploads.
 @login_required
 def bulk():
-    return render_template('bulk.html')
+    """Upload a folder full of files, subdirs to root folder to server"""
+    return render_template('bulk-upload.html')
 
 @app.route('/upload/', methods=['POST'])
 @login_required
@@ -139,6 +146,20 @@ def delete(message_id):
     else:
         logger.error(f"Error deleting file / message with ID: {message_id}")
         return render_template('error.html', error_message=f"Error deleting file / message with ID: {message_id}. Error: {err}")
+
+@app.route('/delete_folder/', methods=['POST'])
+@login_required
+def delete_folder():
+    folder_path = request.form.get('delete_folder', None)   # Which folder must be deleted?
+    if folder_path is not None:
+        success, err = bot.delete_folder(folder_path)
+        if success is not False:
+            flash("Folder deletion successful!!", "success")
+            return redirect(url_for('index'))   # On success
+        else:
+            flash("Something went, Folder deletion un-successful! Please check logs.", "danger")
+            return render_template('error.html', error_message=err)  # return error message
+    return render_template('error.html', error_message="POST request to delete a folder is missing required form fields: 'delete_folder'.")
 
 @app.route('/validate/')
 @login_required

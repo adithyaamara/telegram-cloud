@@ -16,12 +16,23 @@
             <tr class="table-info">
                 <th><label for="uf">Files To Upload:</label></th>
                 <th><input type="file" name="upload_file" id="uf" multiple /></th>
-                <th><input type="text" name="target_directory" id="ud", value="{{ working_directory }}"/></th>      <!-- Working directory is default value for upload, unless explicitly specified  -->
+                <th><input type="text" name="target_directory" id="uploadDirectory", value="{{ working_directory }}"/></th>      <!-- Working directory is default value for upload, unless explicitly specified  -->
                 <th><button type="submit" class="btn btn-md btn-success"> Upload </button></th>
             </tr>
         </table>
     </form>
     {% include 'flash.html' %}
+    <nav aria-label="breadcrumb">   <!-- Path Navigator Breadcrumb-->
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Home</a></li>
+        {% if working_directory != "" %}
+            {% for path_item, path_str in directory_parts %}
+                <!-- This path navigator breadcrumb depends on `directory_parts` coming from python. It is a list of tuples, each tuple must have path_item (current folder name) , path_str (fully qualified path to reach that directory) -->
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}?target_directory={{ path_str }}">{{ path_item }}</a></li>
+            {% endfor %}
+        {% endif %}
+    </ol>
+    </nav>
     <table class="table table-hover table-striped table-light">
         <thead>
             <tr>
@@ -37,7 +48,13 @@
             {% for folder in folders %}
             <tr>
                 <!-- Folder is a link to navigate to it. target directory = current_directory + actual folder name. -->
-                <td colspan="3"> <a href="{{ url_for('index') }}?target_directory={{ working_directory }}/{{ folder }}" class="link-primary"> {{ folder }} </a> </td>
+                <td colspan="2"> <a href="{{ url_for('index') }}?target_directory={{ working_directory }}/{{ folder }}" class="link-primary"> {{ folder }} </a> </td>
+                <td>
+                    <form action="{{ url_for('delete_folder') }}" method="post" style="display: inline;">
+                        <input type="text" name="delete_folder" id="deleteDirectory", value="{{ working_directory }}/{{ folder }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
+                        <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure want to delete this whole folder? \n All sub folders, files inside this directory will be permanently deleted! \n There is no taking it back!!')">Delete Folder</button>
+                    </form>
+                </td>
             </tr>
             {% endfor %}
             {% for file_info in files %}
@@ -46,7 +63,7 @@
                     <td>{{ file_info.size }}</td>
                     <td>
                         <form action="{{ url_for('delete', message_id=file_info.message_id) }}" method="post" style="display: inline;">
-                            <input type="text" name="target_directory" id="ud", value="{{ working_directory }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
+                            <input type="text" name="target_directory" id="deleteFromDirectory", value="{{ working_directory }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
                             <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure want to delete this file? There is no taking it back!!')">Delete</button>
                         </form>
                         <a href="{{ url_for('file_download', file_id=file_info.file_id) }}" class="btn btn-outline-primary">Download</a>
