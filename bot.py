@@ -76,7 +76,7 @@ def index():
         folders.remove("meta")  # reserved for metadata in root.
         return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
     else:   # BUG: Write re-usable function to sanitize file paths.
-        ret_structure, err = bot._ops.get_contents_in_directory(directory, bot._schema.copy(), files_only=False)  # get dict item from schema in a given directory path. COntains both files and folders.
+        _, ret_structure, err = bot._ops.get_contents_in_directory(directory, bot._schema.copy(), files_only=False)  # get dict item from schema in a given directory path. COntains both files and folders.
         if ret_structure is not False:
             folders = list(ret_structure.keys())
             folders.remove("root")
@@ -160,6 +160,21 @@ def delete_folder():
             flash("Something went, Folder deletion un-successful! Please check logs.", "danger")
             return render_template('error.html', error_message=err)  # return error message
     return render_template('error.html', error_message="POST request to delete a folder is missing required form fields: 'delete_folder'.")
+
+@app.route('/move_folder/', methods=['POST'])
+@login_required
+def move_folder():
+    folder_to_move = request.form.get("folder_to_move", None)
+    target_folder = request.form.get("target_folder", None)
+    new_name_for_moved_folder = request.form.get("new_name_for_moved_folder", None)
+    if (folder_to_move is None) or (target_folder is None):
+        logger.error("MoveFile request is missing required form data, rejected it!")
+        return redirect(url_for('index'))
+    if new_name_for_moved_folder == "": new_name_for_moved_folder = None   # No new name specified by user.
+    res, err = bot.move_folder(folder_to_move, target_folder, new_name_for_moved_folder)    # Invalid folder name sanity checks apply for this new_name_for_moved_folder as well.
+    if res is False:
+        return render_template('error.html', error_message=err)
+    return redirect(url_for('index'))
 
 @app.route('/validate/')
 @login_required
