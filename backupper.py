@@ -73,7 +73,7 @@ def upload(path: str, path_in_server: str, dry_run: bool):
 @click.option('--dry_run', is_flag=True, default=False, help='Set this option to do a crawl check, not do the actual download!!')
 @click.option('--force', is_flag=True, default=False, help='Set this option to True if you want to re-download even if the file in question is already present in your local.')
 def download(path: str, path_in_server: str, dry_run: bool, force: bool):
-    sub_schema, err = bot._ops.get_contents_in_directory(path_in_server, bot._schema, files_only=False)   # Get bot files and folders inside this directory.
+    _, sub_schema, err = bot._ops.get_contents_in_directory(path_in_server, bot._schema, files_only=False)   # Get bot files and folders inside this directory.
     if sub_schema is False:
         click.echo(f"Something went wrong! Error: {err}")
     else:

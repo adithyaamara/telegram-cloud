@@ -12,11 +12,12 @@ load_dotenv()
 logger = logging.getLogger()
 
 class BotActions:
-    def __init__(self) -> None:
+    def __init__(self, schema_filepath=None) -> None:
         self.__bot_token = env["API_KEY"]         # Raises key error if not found.
         self.__channel_id = env["CHANNEL_ID"]     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
-        self._schema_filename = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
+        if schema_filepath is None:  # If none, use default, else use user-defined path. This will be used for doing multiple backups using cli. Or for testing purposes.
+            self._schema_filepath = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
         self.save_schema()  # SAVE SCHEMA ONCE At start
         self._ops = SchemaManipulations()
@@ -26,7 +27,7 @@ class BotActions:
 
     def load_or_reload_schema(self):
         try:
-            with open(self._schema_filename, 'r') as schema_file:
+            with open(self._schema_filepath, 'r') as schema_file:
                 schema = json.load(schema_file)
                 if "meta" not in schema:
                     schema["meta"] = {"total_size": "Unknown", "last_validated": "Please re-validate schema ASAP!"}
@@ -37,7 +38,7 @@ class BotActions:
 
     def save_schema(self, file_content_bytes: bytes = None):
         try:
-            with open(self._schema_filename, 'w') as schema_file:
+            with open(self._schema_filepath, 'w') as schema_file:
                 if file_content_bytes is not None:  # If file is specified explicitly as byte array.
                     self._schema = json.loads(file_content_bytes.decode('utf8'))    # load bytes as str and then to dictionary.
                 json.dump(self._schema, schema_file, indent=4)    # save in-memory schema dictionary as file.
@@ -116,10 +117,15 @@ class BotActions:
             logger.error(f"Error uploading file: {e}")
             return False, str(e)
 
-    def delete_file(self, full_path: str, message_id: int):
+    def delete_file(self, full_path: str, message_id: int, with_out_schema_change: bool = False):
+        """Delete a file based in `message_id` and pop it's corresponding record from schema.\n
+           If `with_out_schema_change=True`, `full_path` is ignored, just delete is performed.
+        """
         try:
             res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
             if res is True:
+                if with_out_schema_change is True:
+                    return True, ""  # return without schema change if arg is specified.
                 modified_schema, err = self._ops.manipulate_schema(full_path, {"message_id": int(message_id)}, self._schema.copy(), delete=True)
                 if modified_schema is False:
                     return False, err
@@ -130,6 +136,54 @@ class BotActions:
         except Exception as e:
             logger.error(f"Error deleting file: {e}")
             return False, e
+
+    def move_folder(self, folder_to_move: str, target_folder: str, new_name_for_moved_folder: str=None):
+        # we want to get sub schema starting from folder path. So we can paste it in new path.
+        folder_name, sub_schema, err = self._ops.get_contents_in_directory(folder_to_move, self._schema.copy(), False)  # folder_name - The name of the folder that is being moved, where as folder_to_move is full path to folder. folder_name is final word of folder_to_move.
+        if new_name_for_moved_folder is not None:
+            folder_name = new_name_for_moved_folder     # Use name specified by user.
+        logger.info(f"The folder '{folder_name}' in path {folder_to_move} is requested to be moved to new path '{target_folder}'")
+        if sub_schema in [False, None]:  # Schema manipulation functions doesn't return False when crash exited, it will be None.
+            return False, err
+        # Delete the folder(that is being moved) from schema , from old path. Later we can add the same in new path. [This way even if folder_to_move, target_folder are given same also, we are not loosing actual anything. This most harmless way]
+        modified_schema_after_folder_deletion, err = self._ops.manipulate_schema(folder_to_move, None, self._schema.copy().copy(), delete=True)  # deleting original folder path from schema.
+        if modified_schema_after_folder_deletion in [False, None]:
+            return False, err
+        logger.info("Substitution success!")
+        # Substitute the schema in new path after deleting original from schema. [If you substitute first and delete later --> There is a risk of directory structure loss if folder to move and target folder are same]
+        modified_schema_after_substitution, err = self._ops.manipulate_schema(target_folder, sub_schema, modified_schema_after_folder_deletion, delete=False, add_folder=True, folder_name=folder_name)  # substituting sub_schema in original schema, with specific folder name at said target_folder path.
+        if modified_schema_after_substitution in [False, None]:
+            return False, err
+        logger.info("delete of original path success!")
+        self._schema = modified_schema_after_substitution.copy()   # This modified schema is after deleting the specified folder in original schema, moving it to new path.
+        self.save_schema()
+        return True, ""
+
+    def delete_folder(self, folder_path: str):
+        try:    # Pop folder path from schema, delete files one by one, ignore deletion errors.
+            _, sub_schema, err = self._ops.get_contents_in_directory(folder_path, self._schema.copy(), False)  # we want to get sub schema starting from folder path.
+            if sub_schema is False:
+                return False, err
+            file_list, err = self._ops.get_file_list_in_a_directory(sub_schema)     # get list of files in this sub schema.
+            if file_list is False:
+                return False, err
+            logger.info(f"Received {len(file_list)} files for deletion under path: {str(folder_path)}!!")
+            modified_schema, err = self._ops.manipulate_schema(folder_path, None, self._schema.copy(), delete=True)
+            if modified_schema is False:
+                return False, err
+            for file_info in file_list:
+                logger.info(f"Attempting to delete file: {file_info['filename']}")
+                res = True
+                res, err = self.delete_file(full_path=None, message_id=file_info["message_id"], with_out_schema_change=True)   # As with_out_schema_change is True, full path is ignored and just delete is attempted.
+                if res is False:
+                    logger.error(f"Failed to delete file {file_info['filename']} during folder deletion. Ignoring that, proceed to next file anyway.")  # If failed, file may still be in telegram, but won't show up in our schema / UI at-least.  # Bulk delete may cause flood control error.
+            if len(file_list) == 0:
+                logger.debug(f"Received folder deletion request, but there are no files inside specified folder path {folder_path}!!")
+            self._schema = modified_schema.copy()   # This modified schema is after deleting the specified folder in original schema.
+            self.save_schema()
+            return True, ""
+        except Exception as err:
+            return False, err
 
     def download_file(self, file_id: str):
         try:
@@ -146,7 +200,7 @@ class SchemaManipulations:
     """Offload schema manipulations from other classes, provide methods for easy schema manipulation"""
 
     def get_sanitized_file_path(self, full_path: str) -> list[str]:
-        disallowed_dir_names = ["root", "", " ", "meta"]    # meta, root are reserved keywords for our schema.
+        disallowed_dir_names = ["root", "", " ", "meta", "/", "\\"]    # meta, root are reserved keywords for our schema.
         if full_path == "":     # callers should handle this as root directory.
             return full_path, ""
         if full_path[0] == "/": full_path = full_path[1:]    # remove first '/' if present.
@@ -163,29 +217,40 @@ class SchemaManipulations:
         """Returns the dictionary item by navigating to the given directory (nested)."""
         full_path, err = self.get_sanitized_file_path(directory)  # get sanitized file path from a directory string.
         if full_path is False:  # Invalid path.
-            return full_path, err   # return error.
+            return False, False, err   # return error.
         for sub_dir in full_path:
             if sub_dir not in ret_structure:
-                return False, f"Invalid Path - {directory}!!"
+                return False, False, f"Invalid Path - {directory}!!"
             ret_structure = ret_structure[sub_dir]
         if files_only:
-            return ret_structure["root"], ""    # no error. Just return files.
+            return sub_dir, ret_structure["root"], ""    # no error. Just return files.
         else:
             try:
                 ret_structure.pop("meta")   # reserved folder. Not to be displayed to user.
             except KeyError:
                 pass
-            return ret_structure, ""    # no error. Return files, folders inside given directory.
+            return sub_dir, ret_structure, ""    # no error. Return final sub_dir in path + files, folders inside given directory.
 
-    def manipulate_schema(self, full_path: str, file_info: dict, schema: dict, delete: bool):
-        "iteratively creates / navigates a nested directory structure in schema, adds the given file_info dict to the nested path, attempts to delete the same from schema if del is set to True. returns updated schema."
+    def manipulate_schema(self, full_path: str, file_info: dict, schema: dict, delete: bool, add_folder: bool=False, folder_name=None):   # This function needs some severe refactoring.
+        """iteratively creates / navigates a nested directory structure in schema, adds the given file_info dict to the nested path, attempts to delete the same from schema if del is set to True. returns updated schema.\n
+           1. Ex: self.manipulate_schema("some/valid/path/in_schema", None, full_schema_or_sub_schema_as_dict, True) --> This will delete the specified full_path from specified schema, returns updated schema. Deletes all the sub_directories, files inside specified path completely.\n
+           2. Ex: self.manipulate_schema("some/valid/path/in_schema", {"message_id": 123}, full_schema_or_sub_schema_as_dict, True)  --> This will delete the specified file_info single record from specified schema under full_path, returns updated schema.\n
+           3. Ex: self.manipulate_schema("some/valid/path/in_schema", {"message_id": 123}, full_schema_or_sub_schema_as_dict, False)  --> This will Add the specified file_info single record to specified schema under full_path, returns updated schema.
+           4. self.manipulate_schema("some/valid/path/in_schema", {"root": [], "folder2": {"root": [{"message_id": 123}]}}, full_schema_or_sub_schema_as_dict, False, True, "newFolder5") --> This will add the file_info (folder info in this case) to specified schema under full_path, folder key name would be as supplied `folder_name`.
+        """
         def helper_fnc(full_path: list, target: dict, file_info: dict):  # create all nested keys / sub directories into schema, if not present.
             if len(full_path) > 0:
                 sub_dir = full_path.pop(0)
+                if delete and len(full_path) == 0 and file_info is None:
+                    # if delete = True, full_path is given, file_info = None (not specified), it means delete the given whole path.
+                    logger.info(f"deleting sub dir: {sub_dir}")
+                    target.pop(sub_dir)  # remove final sub_dir specified in path.
+                    return target
                 if sub_dir not in target.keys():    # this is not a possible scenario during delete.
                     target[sub_dir] = {"root": []}
                 if len(full_path) == 0:     # if previously fetched sub_dir was the last in path, add the file to that sub dir only. "root" is a list in each directory that holds file_infos.
                     if delete:  # to delete. No other attribute other than `message_id` needs to be supplied for deletion.
+                        logger.debug(f"Attempting to delete stale file from schema. MessageId: {file_info['message_id']}, Path: {full_path}")
                         for pos, info in enumerate(target[sub_dir]["root"].copy()):
                             if info["message_id"] == file_info["message_id"]:     # Delete based on supplied message_id.
                                 target[sub_dir]["root"].pop(pos)    # remove the record for this message_id.
@@ -194,6 +259,21 @@ class SchemaManipulations:
                         target[sub_dir]["root"].append(file_info)   # Whole target will be returned in next run, as the primary check was len(full_path) > 0. Recursion ends.
                 helper_fnc(full_path, target[sub_dir], file_info)
             return target
+
+        def add_folder_in_path(full_path: list, folder_name: str, schema_dict: dict, folder_info: dict):
+            if len(full_path) > 0:
+                sub_dir = full_path.pop(0)
+                if sub_dir not in schema_dict.keys():
+                    logger.info(f"Creating new sub directory: {sub_dir}!!")
+                    schema_dict[sub_dir] = {"root": []}     # create target path if not already there.
+                if len(full_path) == 0:  # If current sub_dir is final one. Add folder here it self, return updated schema.
+                    if folder_name not in schema_dict[sub_dir]:  # If a folder with same folder_name is present in specified path, it should not overwrite.
+                        schema_dict[sub_dir][folder_name] = folder_info  # Added a folder with specified name, sub_schema in the said path.
+                    else:
+                        raise Exception("A folder with same name is already present where the folder add is attempted!")
+                add_folder_in_path(full_path, folder_name, schema_dict[sub_dir], folder_info)
+            return schema_dict
+
         try:
             sanitized_path, err = self.get_sanitized_file_path(full_path)
             if sanitized_path is False:
@@ -205,8 +285,19 @@ class SchemaManipulations:
                     if info["message_id"] == int(file_info["message_id"]):
                         schema["root"].pop(pos)
                 modified_schema = schema
+            elif add_folder and folder_name is not None and isinstance(file_info, dict):  # If `add_folder` is specified, consider `file_info` as a sub_schema_dict, full path as target_folder to place this sub_schema on key/folder name specified by arg `folder_name`
+                folder_name, err = self.get_sanitized_file_path(folder_name)
+                folder_name = folder_name[0]    # As we have given folder name not path.
+                if folder_name is False:    # applying name sanity checks for new folder as well.
+                    logger.error(f"Schema manipulation aborted, as path sanity check failed for: {folder_name}")
+                    return False, err
+                if sanitized_path == "":    # A folder move to root.
+                    logger.debug("Attempting to Move a folder to root directory!!")
+                    schema[folder_name] = file_info  # Added a new folder in root directory.
+                    modified_schema = schema.copy()
+                else:
+                    modified_schema = add_folder_in_path(sanitized_path, folder_name, schema, file_info)
             else:
-                logger.debug(f"Attempting to delete stale file from schema. MessageId: {file_info['message_id']}, Path: {full_path}")
                 modified_schema = helper_fnc(sanitized_path, schema.copy(), file_info)
             return modified_schema, ""   # at the end of recursion, we will get updated schema. Starting schema manipulation on a copy of schema to be safe.
         except Exception as err:
@@ -227,3 +318,21 @@ class SchemaManipulations:
                 if result:
                     return result
         return None
+
+    def get_file_list_in_a_directory(self, schema_dict: dict):
+        """Iterates through all nested keys in given schema dictionary(this can be whole schema are a sub_schema whose structure is similar to ur standard schema). \n
+           Adds each file in each sub_directory to file_list. Same can be looped through to get every individual file for processing. \n
+            To get all the files present in a sub_directory in schema, call get_contents_in_directory with a path to sub dir, and feed it's response to this function.
+        """
+        def get_file_list(schema_dict: dict, file_list:list = []):    # file list is initially empty. Internal recursive function.
+            for key, value in schema_dict.items():
+                if isinstance(value, dict):
+                    get_file_list(value, file_list)
+                elif key == "root" and isinstance(value, list):
+                    file_list.extend(value)
+            return file_list
+        try:
+            file_list = get_file_list(schema_dict.copy())
+            return file_list, ""
+        except Exception as err:
+            return False, err
