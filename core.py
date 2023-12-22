@@ -12,11 +12,12 @@ load_dotenv()
 logger = logging.getLogger()
 
 class BotActions:
-    def __init__(self) -> None:
+    def __init__(self, schema_filepath=None) -> None:
         self.__bot_token = env["API_KEY"]         # Raises key error if not found.
         self.__channel_id = env["CHANNEL_ID"]     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
-        self._schema_filename = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
+        if schema_filepath is None:  # If none, use default, else use user-defined path. This will be used for doing multiple backups using cli. Or for testing purposes.
+            self._schema_filepath = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
         self.save_schema()  # SAVE SCHEMA ONCE At start
         self._ops = SchemaManipulations()
@@ -26,7 +27,7 @@ class BotActions:
 
     def load_or_reload_schema(self):
         try:
-            with open(self._schema_filename, 'r') as schema_file:
+            with open(self._schema_filepath, 'r') as schema_file:
                 schema = json.load(schema_file)
                 if "meta" not in schema:
                     schema["meta"] = {"total_size": "Unknown", "last_validated": "Please re-validate schema ASAP!"}
@@ -37,7 +38,7 @@ class BotActions:
 
     def save_schema(self, file_content_bytes: bytes = None):
         try:
-            with open(self._schema_filename, 'w') as schema_file:
+            with open(self._schema_filepath, 'w') as schema_file:
                 if file_content_bytes is not None:  # If file is specified explicitly as byte array.
                     self._schema = json.loads(file_content_bytes.decode('utf8'))    # load bytes as str and then to dictionary.
                 json.dump(self._schema, schema_file, indent=4)    # save in-memory schema dictionary as file.

@@ -190,7 +190,7 @@ def validate_schema():
 def persist_schema():
     block_on_validation_in_progress()
     try:
-        success, file_id = bot.upload_file(file=open(bot._schema_filename, 'rb'), file_name=bot._schema_filename.split('/')[-1], update_schema=False)
+        success, file_id = bot.upload_file(file=open(bot._schema_filepath, 'rb'), file_name=bot._schema_filepath.split('/')[-1], update_schema=False)
         if success is True:
             return jsonify({"message": f"Schema Upload successful, Use {file_id} to recover!"})
     except Exception as err:
