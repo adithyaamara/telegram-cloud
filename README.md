@@ -1,4 +1,4 @@
-# telegram-cloud
+# telegram-cloud  [![Docker Image CI](https://github.com/adithyaamara/telegram-cloud/actions/workflows/CI-Docker-Push.yml/badge.svg?branch=main)](https://github.com/adithyaamara/telegram-cloud/actions/workflows/CI-Docker-Push.yml)
 
     A personal, secure, free, unlimited cloud storage.
 
