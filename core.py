@@ -141,18 +141,20 @@ class BotActions:
         folder_name, sub_schema, err = self._ops.get_contents_in_directory(folder_to_move, self._schema.copy(), False)  # folder_name - The name of the folder that is being moved, where as folder_to_move is full path to folder. folder_name is final word of folder_to_move.
         if new_name_for_moved_folder is not None:
             folder_name = new_name_for_moved_folder     # Use name specified by user.
-        logger.info(f"The folder '{folder_name}' is requested to be moved to new path '{target_folder}'")
+        logger.info(f"The folder '{folder_name}' in path {folder_to_move} is requested to be moved to new path '{target_folder}'")
         if sub_schema in [False, None]:  # Schema manipulation functions doesn't return False when crash exited, it will be None.
             return False, err
-        # Substitute the schema in new path before actually deleting it from schema.
-        modified_schema_after_substitution, err = self._ops.manipulate_schema(target_folder, sub_schema, self._schema.copy(), delete=False, add_folder=True, folder_name=folder_name)  # substituting sub_schema in original schema, with specific folder name at said target_folder path.
-        if modified_schema_after_substitution in [False, None]:
-            return False, err
-        # Since substitution of folder in new path is successful, delete the original folder.
-        modified_schema_after_folder_deletion, err = self._ops.manipulate_schema(folder_to_move, None, modified_schema_after_substitution.copy(), delete=True)  # deleting original folder path from schema.
+        # Delete the folder(that is being moved) from schema , from old path. Later we can add the same in new path. [This way even if folder_to_move, target_folder are given same also, we are not loosing actual anything. This most harmless way]
+        modified_schema_after_folder_deletion, err = self._ops.manipulate_schema(folder_to_move, None, self._schema.copy().copy(), delete=True)  # deleting original folder path from schema.
         if modified_schema_after_folder_deletion in [False, None]:
             return False, err
-        self._schema = modified_schema_after_folder_deletion.copy()   # This modified schema is after deleting the specified folder in original schema, moving it to new path.
+        logger.info("Substitution success!")
+        # Substitute the schema in new path after deleting original from schema. [If you substitute first and delete later --> There is a risk of directory structure loss if folder to move and target folder are same]
+        modified_schema_after_substitution, err = self._ops.manipulate_schema(target_folder, sub_schema, modified_schema_after_folder_deletion, delete=False, add_folder=True, folder_name=folder_name)  # substituting sub_schema in original schema, with specific folder name at said target_folder path.
+        if modified_schema_after_substitution in [False, None]:
+            return False, err
+        logger.info("delete of original path success!")
+        self._schema = modified_schema_after_substitution.copy()   # This modified schema is after deleting the specified folder in original schema, moving it to new path.
         self.save_schema()
         return True, ""
 
@@ -228,11 +230,12 @@ class SchemaManipulations:
                 pass
             return sub_dir, ret_structure, ""    # no error. Return final sub_dir in path + files, folders inside given directory.
 
-    def manipulate_schema(self, full_path: str, file_info: dict, schema: dict, delete: bool, add_folder: bool=False, folder_name=None):
+    def manipulate_schema(self, full_path: str, file_info: dict, schema: dict, delete: bool, add_folder: bool=False, folder_name=None):   # This function needs some severe refactoring.
         """iteratively creates / navigates a nested directory structure in schema, adds the given file_info dict to the nested path, attempts to delete the same from schema if del is set to True. returns updated schema.\n
            1. Ex: self.manipulate_schema("some/valid/path/in_schema", None, full_schema_or_sub_schema_as_dict, True) --> This will delete the specified full_path from specified schema, returns updated schema. Deletes all the sub_directories, files inside specified path completely.\n
            2. Ex: self.manipulate_schema("some/valid/path/in_schema", {"message_id": 123}, full_schema_or_sub_schema_as_dict, True)  --> This will delete the specified file_info single record from specified schema under full_path, returns updated schema.\n
            3. Ex: self.manipulate_schema("some/valid/path/in_schema", {"message_id": 123}, full_schema_or_sub_schema_as_dict, False)  --> This will Add the specified file_info single record to specified schema under full_path, returns updated schema.
+           4. self.manipulate_schema("some/valid/path/in_schema", {"root": [], "folder2": {"root": [{"message_id": 123}]}}, full_schema_or_sub_schema_as_dict, False, True, "newFolder5") --> This will add the file_info (folder info in this case) to specified schema under full_path, folder key name would be as supplied `folder_name`.
         """
         def helper_fnc(full_path: list, target: dict, file_info: dict):  # create all nested keys / sub directories into schema, if not present.
             if len(full_path) > 0:
@@ -263,7 +266,7 @@ class SchemaManipulations:
                     logger.info(f"Creating new sub directory: {sub_dir}!!")
                     schema_dict[sub_dir] = {"root": []}     # create target path if not already there.
                 if len(full_path) == 0:  # If current sub_dir is final one. Add folder here it self, return updated schema.
-                    if folder_name not in schema_dict:  # If a folder with same folder_name is present in specified path, it should not overwrite.
+                    if folder_name not in schema_dict[sub_dir]:  # If a folder with same folder_name is present in specified path, it should not overwrite.
                         schema_dict[sub_dir][folder_name] = folder_info  # Added a folder with specified name, sub_schema in the said path.
                     else:
                         raise Exception("A folder with same name is already present where the folder add is attempted!")

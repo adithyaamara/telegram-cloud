@@ -55,7 +55,7 @@
                 <!-- Folder is a link to navigate to it. target directory = current_directory + actual folder name. -->
                 <td colspan="2"> <a href="{{ url_for('index') }}?target_directory={{ working_directory }}/{{ folder }}" class="link-primary"> <img src="/static/icons/folder.svg" alt=""> {{ folder }} </a> </td>
                 <td>
-                    <button class="move-btn btn btn-outline-primary" data-folder="{{ working_directory }}/{{ folder }}" data-toggle="modal" data-target="#moveModal"><img src="/static/icons/folder-move.svg" alt="" srcset=""> Move</button>
+                    <button class="move-btn btn btn-outline-primary" data-folder="{{ working_directory }}/{{ folder }}" id="moveBtn_{{ loop.index }}" data-toggle="modal" data-target="#moveModal"><img src="/static/icons/folder-move.svg" alt="" srcset=""> Move</button>   <!-- data-folder is set to current folder's full path, an unique id is assigned, so that we can read data-folder using id while doing move operation using JS -->
                     <form action="{{ url_for('delete_folder') }}" method="post" style="display: inline;">
                         <input type="text" name="delete_folder" id="deleteDirectory", value="{{ working_directory }}/{{ folder }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
                         <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure want to delete this whole folder? \n All sub folders, files inside this directory will be permanently deleted! \n There is no taking it back!!')"><img src="/static/icons/trash.svg" alt=""> Delete Folder</button>
@@ -104,12 +104,15 @@
                     </button>
                 </div>
                 <div class="modal-body">
-                    <label for="targetFolder">Enter target folder:</label>
-                    <input type="text" class="form-control" id="targetFolder">
+                    <label for="targetFolder">Enter target folder: (Leave blank to move to root directory)</label>
+                    <input type="text" class="form-control" id="targetFolder" placeholder="Path to folder, where you want to move this folder to.">
                 </div>
                 <div class="modal-body">
                     <label for="newNameForMovedFolder">Give a new name to folder? Leave blank for moving without renaming.</label>
                     <input type="text" class="form-control" id="newNameForMovedFolder">
+                </div>
+                <div class="modal-body">
+                    <textarea id="modal-pro-tip" class="form-control" style="min-width: 100%" readonly>Pro Tip: To rename the current folder in-place, Set target folder path as current path, specify new name to the folder.</textarea>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
@@ -120,16 +123,16 @@
     </div>
     <!-- Script for managing file movement modal -->
     <script>
+        var folderToMove    // The folder that is being moved (fetch immediately on move folder button clicked.)
         document.querySelectorAll('.move-btn').forEach(function(button) {
             button.addEventListener('click', function() {
-                // Set the selected folder in the modal input
-                document.getElementById('targetFolder').value = button.dataset.folder;
+                var buttonId = button.id;   // Each folder's move button will have a different ID. Based on that get which folder's button was clicked.
+                folderToMove = document.getElementById(buttonId).dataset.folder;  // copy the selected button's folder path (data-folder attribute). This is necessary for making move_folder API call.
             });
         });
 
         document.getElementById('moveConfirmBtn').addEventListener('click', function() {
-            var folderToMove = document.querySelector('.move-btn').dataset.folder;  // Get the selected folder automatically.
-            var targetFolder = document.getElementById('targetFolder').value;   // target folder is same as selected folder initially, must be edited before clicking move.
+            var targetFolder = document.getElementById('targetFolder').value;   // Where to move the selected folder to. (fetch after move button in modal is clicked.)
             var newNameForMovedFolder = document.getElementById('newNameForMovedFolder').value;   // target folder is same as selected folder initially, must be edited before clicking move.
             var moveButton = this;
             moveButton.disabled = true;   // Disable once clicked, to avoid multiple calls from over enthusiastic user.
@@ -146,11 +149,12 @@
                     window.location.href = response.url;
                 } else {     // If response is JSON. Just console log it.
                     moveButton.disabled = false
-                    return response.json();
+                    return response.json()
                 }
             })
             .then(data => {
                 console.log(data);
+                document.getElementById("modal-pro-tip").innerHTML = data.error  // In case of error, Error is displayed in pro-tip section of modal only.
             })
             .catch(error => console.error('Error:', error));
         });

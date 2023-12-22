@@ -173,7 +173,7 @@ def move_folder():
     if new_name_for_moved_folder == "": new_name_for_moved_folder = None   # No new name specified by user.
     res, err = bot.move_folder(folder_to_move, target_folder, new_name_for_moved_folder)    # Invalid folder name sanity checks apply for this new_name_for_moved_folder as well.
     if res is False:
-        return render_template('error.html', error_message=err)
+        return jsonify({"error": err})
     return redirect(url_for('index'))
 
 @app.route('/validate/')

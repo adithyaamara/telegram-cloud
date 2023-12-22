@@ -165,3 +165,4 @@ certs/cert.pem
 certs/csr.pem
 certs/key.pem
 ./Downloads/**
+test.py
