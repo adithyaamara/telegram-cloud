@@ -65,16 +65,25 @@ class BotActions:
                 for pos, file_info in enumerate(file_list.copy()):
                     try:
                         file_id = file_info["file_id"]
+                        message_id = file_info["message_id"]
                     except KeyError:
-                        file_list.pop(pos)
+                        file_list.remove(file_info)
                         logger.error(f"Ill-Formatted record found. File_ID missing. Dropping it.")
                         continue    # no need to proceed further on this file.
                     try:
                         cloud_file = self.__bot.get_file(file_id=file_id)
-                        logger.debug(f"No issues found with record, Ref Files ID: {file_id}")
-                    except telegram_error.BadRequest:
+                        logger.debug(f"File is present in cloud, Ref Files ID: {file_id}")
+                    except (telegram_error.BadRequest, telegram_error.TelegramError):
                         logger.info(f"The file no longer exists on cloud! Removing it from schema. Ref Id: {file_id}")
-                        file_list.pop(pos)
+                        file_list.remove(file_info)
+                        continue
+                    try:
+                        underlying_message = self.__bot.copy_message(from_chat_id=self.__channel_id, chat_id="", message_id=message_id)    # not specifying to chat_id. As we are using this method to just check if message exists or not.
+                    except telegram_error.TelegramError as err:
+                        if "Message to copy not found" in str(err):
+                            logger.info(f"Underlying message for a file with message id '{message_id}' is deleted. SO deleting file record from schema!!")
+                            file_list.remove(file_info)
+                            continue
                     meta["total_size"] += cloud_file.file_size
                     file_list[pos]["size"] = size(cloud_file.file_size)     # save in KB / MB string.
                     time.sleep(1)   # small delay to avoid DDOS scenario.
@@ -122,7 +131,11 @@ class BotActions:
            If `with_out_schema_change=True`, `full_path` is ignored, just delete is performed.
         """
         try:
-            res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
+            try:
+                res = self.__bot.delete_message(chat_id=self.__channel_id, message_id=message_id)   # deletion is not based on file id, but message_id.
+            except telegram_error.TelegramError as err:
+                if "Message to delete not found" in str(err):
+                    res = True  # Message is already deleted from telegram, so we can proceed to delete it from schema as well.. Any other error, we don't remove from schema.
             if res is True:
                 if with_out_schema_change is True:
                     return True, ""  # return without schema change if arg is specified.
@@ -218,6 +231,7 @@ class SchemaManipulations:
         full_path, err = self.get_sanitized_file_path(directory)  # get sanitized file path from a directory string.
         if full_path is False:  # Invalid path.
             return False, False, err   # return error.
+        sub_dir = ""    # avoid unbound local error in some cases.
         for sub_dir in full_path:
             if sub_dir not in ret_structure:
                 return False, False, f"Invalid Path - {directory}!!"
