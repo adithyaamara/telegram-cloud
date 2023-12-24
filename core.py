@@ -8,14 +8,24 @@ import time
 from hurry.filesize import size
 import logging
 import json
+## file enc / dec
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.fernet import Fernet
+import base64
+####
 load_dotenv()
 logger = logging.getLogger()
 
 class BotActions:
-    def __init__(self, schema_filepath=None) -> None:
-        self.__bot_token = env["API_KEY"]         # Raises key error if not found.
-        self.__channel_id = env["CHANNEL_ID"]     # Channel Id where files are uploaded.
+    def __init__(self, schema_filepath=None, encrypted: bool=True) -> None:
+        self.__bot_token = str(env["API_KEY"])         # Raises key error if not found.
+        self.__channel_id = str(env["CHANNEL_ID"])     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
+        self._is_encryption_enabled = encrypted
+        if self._is_encryption_enabled:
+            self.__file_ops = EncDecHelper(self.__bot_token + self.__channel_id)    # bot token + channel id combined as a string is used as base encryption key.
         if schema_filepath is None:  # If none, use default, else use user-defined path. This will be used for doing multiple backups using cli. Or for testing purposes.
             self._schema_filepath = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
@@ -107,7 +117,9 @@ class BotActions:
             res, err = self._ops.get_sanitized_file_path(directory)  # sanity check
             if res is False:
                 return False, err   # return the error to caller.
-            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))
+            if self._is_encryption_enabled:
+                file = self.__file_ops.get_encrypted_data_binary(file.read())
+            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))   # Encrypted upload.
             # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
             file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
             if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
@@ -202,6 +214,8 @@ class BotActions:
         try:
             file_pointer = self.__bot.get_file(file_id)
             file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
+            if self._is_encryption_enabled:
+                file_content = self.__file_ops.get_decrypted_data_binary(file_content)  # decrypt before sending binary.
             logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
             return file_content, file_pointer.file_path.split('/')[-1]
         except Exception as e:
@@ -350,3 +364,29 @@ class SchemaManipulations:
             return file_list, ""
         except Exception as err:
             return False, err
+
+
+class EncDecHelper:
+    """Helper class to provide methods for encrypting and decrypting data from and to binary"""
+    def __init__(self, passwd: str) -> None:
+        self.__enc_key = self.derive_key_from_password(passwd)
+        self.__cipher = Fernet(self.__enc_key)
+
+    def derive_key_from_password(self, password, salt=b"salt", iterations=100000):
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,  # 32 bytes for Fernet key
+            salt=salt,
+            iterations=iterations,
+            backend=default_backend()
+        )
+        key = kdf.derive(password.encode())
+        return base64.urlsafe_b64encode(key).decode('utf-8')
+
+    def get_encrypted_data_binary(self, file_binary):
+        return self.__cipher.encrypt(file_binary)
+
+    def get_decrypted_data_binary(self, encrypted_file_binary):
+        if isinstance(encrypted_file_binary, bytearray):
+            encrypted_file_binary = bytes(encrypted_file_binary)
+        return self.__cipher.decrypt(encrypted_file_binary)

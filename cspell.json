@@ -6,7 +6,10 @@
     "words": [
         "backupper",
         "dotenv",
-        "jsonify"
+        "Fernet",
+        "jsonify",
+        "pathvalidate",
+        "werkzeug"
     ],
     "ignoreWords": [],
     "import": []
