@@ -218,6 +218,7 @@ class SchemaManipulations:
         full_path, err = self.get_sanitized_file_path(directory)  # get sanitized file path from a directory string.
         if full_path is False:  # Invalid path.
             return False, False, err   # return error.
+        sub_dir = ""    # avoid unbound local error in some cases.
         for sub_dir in full_path:
             if sub_dir not in ret_structure:
                 return False, False, f"Invalid Path - {directory}!!"
