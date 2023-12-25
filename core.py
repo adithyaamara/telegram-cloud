@@ -112,6 +112,15 @@ class BotActions:
     def is_validation_active(self) -> bool:
         return self.VALIDATION_ACTIVE
 
+    def get_active_users_in_channel(self):
+        """Get Number of users are currently added to channel. For best security only you and bot (total 2) must be the members present in the private channel."""
+        error = None
+        chat_member_count = self.__bot.get_chat_members_count(self.__channel_id)     # Get number of users added to the channel.
+        if chat_member_count > 2:
+            error = f"[Security Breach] -> Number of users in channel is more than two: '{chat_member_count}' !! Please go to telegram app, manually remove everyone except the bot. Otherwise they may have access to any un-encrypted files in the channel!!"
+            logger.warning(error)
+        return chat_member_count, error
+
     def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
         try:
             file_name = sanitize_filename(file_name)

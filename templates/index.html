@@ -26,6 +26,10 @@
             </tr>
         </table>
     </form>
+    {% if security_warning %}    <!-- Only show when there is a warning, a marquee with danger level is displayed -->
+    <div class="alert-danger"><marquee behavior="" direction="text-left"><b>{{ security_warning }}</b></marquee></div>
+    <br>
+    {% endif %}
     {% include 'flash.html' %}
     <nav aria-label="breadcrumb">   <!-- Path Navigator Breadcrumb-->
     <ol class="breadcrumb">

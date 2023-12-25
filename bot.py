@@ -70,12 +70,13 @@ def block_on_validation_in_progress():
 @login_required
 def index():
     block_on_validation_in_progress()
+    _, security_warning = bot.get_active_users_in_channel()  # Security warning is displayed in index page if not none.
     directory = request.args.get('target_directory', None)  # Directory to navigate to.
     if directory is None:   # If dir not specified, use home.
         folders = list(bot._schema.keys())
         folders.remove("root")  # reserved for storing files.
         folders.remove("meta")  # reserved for metadata in root.
-        return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
+        return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"], security_warning=security_warning)
     else:   # BUG: Write re-usable function to sanitize file paths.
         _, ret_structure, err = bot._ops.get_contents_in_directory(directory, bot._schema.copy(), files_only=False)  # get dict item from schema in a given directory path. COntains both files and folders.
         if ret_structure is not False:
@@ -87,7 +88,7 @@ def index():
                 if path_item != "":  # If path_item is "", an extra / is displayed in breadcrumb. We don;t even allow empty folder names to be created anyway.
                     path_str = path_str + '/' + path_item
                     directory_parts.append((path_item, path_str))   # read same way in template. path_item is folder name displayed in bread crumb (ex: sample), path_str is full path to reach that folder (ex: /bkp/folder/sample).
-            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory, directory_parts=directory_parts)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
+            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory, directory_parts=directory_parts, security_warning=security_warning)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
         return jsonify({"error": err})
 
 @app.route('/bulk-upload/', methods=['GET'])    # For full folder uploads.
