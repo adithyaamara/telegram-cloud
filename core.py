@@ -24,7 +24,8 @@ class BotActions:
         self.__channel_id = str(env["CHANNEL_ID"])     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
         self._is_encryption_enabled = encrypted
-        if self._is_encryption_enabled:
+        if self._is_encryption_enabled:  # Below helper id needed only when encryption is enabled by user.
+            logger.info("File Encryption is enabled for this session! All uploads done in this session will be encrypted uploads.")
             self.__file_ops = EncDecHelper(self.__bot_token + self.__channel_id)    # bot token + channel id combined as a string is used as base encryption key.
         if schema_filepath is None:  # If none, use default, else use user-defined path. This will be used for doing multiple backups using cli. Or for testing purposes.
             self._schema_filepath = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
@@ -118,10 +119,11 @@ class BotActions:
             if res is False:
                 return False, err   # return the error to caller.
             if self._is_encryption_enabled:
-                file = self.__file_ops.get_encrypted_data_binary(file.read())
+                logger.info(f"Attempting to encrypt the file '{file_name}' before upload!")
+                file = self.__file_ops.get_encrypted_data_binary(file.read())   # Upload encrypted file if encryption is enabled.
             response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))   # Encrypted upload.
             # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
-            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
+            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size), "is_encrypted": self._is_encryption_enabled}
             if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
                 if directory == "":     # Append to default root directory if unspecified.
                     self._schema["root"].append(file_info)
@@ -210,11 +212,24 @@ class BotActions:
         except Exception as err:
             return False, err
 
-    def download_file(self, file_id: str):
+    def download_file(self, file_id: str, is_encrypted: bool=None):   # Specify if file has to be decrypted before returning. Taken for granted if supplied, else will read schema to determine if a file was encrypted during upload. [Option for users using CLI.]
+        """Fetch file from telegram using `file_id`, return the file as binary (with / without decrypting). \n
+           `is_encrypted` is optional, if supplied, decrypts the file before returning (Doesn't matter if the file was encrypted during upload or not ;)\n
+           if `is_encrypted` argument is not specified, checks the file record from schema to see if `is_encrypted` flag is set, act accordingly. If that was also not set, send without decryption.
+        """
         try:
             file_pointer = self.__bot.get_file(file_id)
             file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
-            if self._is_encryption_enabled:
+            if is_encrypted is None:    # Arg not specified, try to read from schema.
+                logger.debug(f"`is_encrypted` was not specified for a file download operation! Determining from schema.")
+                file_record = self._ops.find_record_by_attribute(self._schema.copy(), "file_id", file_id)  # find the file record from schema for this file_id. From that we can know if file was initially encrypted or not.
+                if file_record is not None:
+                    is_encrypted = file_record.get("is_encrypted", False)   # is_encrypted is set during file upload based on if user decided to use encryption or not. If flag is not set in record, assume that a file is not encrypted by default.(Backward compatibility)
+                else:   # if file record itself is not found. Assume no encryption.
+                    logger.debug(f"No records was found in schema for file_id: '{file_id}'. Sending file without decryption!")
+                    is_encrypted = False
+            if is_encrypted:
+                logger.debug(f"Attempting to decrypt the file with ID '{file_id}'!")
                 file_content = self.__file_ops.get_decrypted_data_binary(file_content)  # decrypt before sending binary.
             logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
             return file_content, file_pointer.file_path.split('/')[-1]

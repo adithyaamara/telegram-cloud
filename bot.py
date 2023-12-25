@@ -22,7 +22,8 @@ app.secret_key = 'your_secret_key_here'  # Optional for now, For Sake of flash m
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'  # Specify the login route, otherwise auto-redirect to login page won't work.
 
-bot = BotActions()  # Core telegram interaction functions.
+file_encryption_choice: bool = True if os.getenv("FILE_ENCRYPTION", "True").upper() == "TRUE" else False    # User can set this option from env, default is true if nothing is selected.
+bot = BotActions(encrypted=file_encryption_choice)  # Core telegram interaction functions.
 
 class User(UserMixin):
     def __init__(self, user_id):

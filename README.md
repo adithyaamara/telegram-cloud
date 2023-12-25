@@ -20,6 +20,8 @@
   # Below 2 env vars creates a user for login. Defaults are used if not specified (Defaults: user, password).
   APP_USER_NAME="SomeUserName-Use the same during login"
   APP_PASSWORD="SomePassword-Use the same during login"
+  # Use True | False in below option to enable / disable encrypted uploads.
+  FILE_ENCRYPTION="True"
   LOGGING_LEVEL="DEBUG"
   ```
 
