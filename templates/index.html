@@ -72,6 +72,10 @@
                     <td><img src="/static/icons/file-earmark.svg" alt=""> {{ file_info.filename }}</td>
                     <td>{{ file_info.size }}</td>
                     <td>
+                        <form action="{{ url_for('share_file') }}" method="post" style="display: inline;">
+                            <input type="text" name="file_id", value="{{ file_info.file_id }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
+                            <button type="submit" class="btn btn-outline-info" onclick="return confirm('Are you sure want to share this file? Any one with valid link can download this file for a certain amount of time!!')">Share</button>
+                        </form>
                         <a href="{{ url_for('file_download', file_id=file_info.file_id) }}" class="btn btn-outline-primary">Download</a>
                         <form action="{{ url_for('delete', message_id=file_info.message_id) }}" method="post" style="display: inline;">
                             <input type="text" name="target_directory" id="deleteFromDirectory", value="{{ working_directory }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->

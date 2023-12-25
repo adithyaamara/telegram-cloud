@@ -4,6 +4,7 @@ from threading import Thread
 from dotenv import load_dotenv
 from core import BotActions
 from datetime import datetime
+from utils.functions import manage_file_shares
 import io
 import os
 import ssl
@@ -14,14 +15,14 @@ logger = logging.getLogger()
 # Fetch temporary user credentials for app login, chosen by user, set to default if unspecified.
 temp_app_username = os.getenv("APP_USER_NAME", "user")
 temp_app_password = os.getenv("APP_PASSWORD", "password")
-
+shared_files_dict = {}    # The file_id of files that were enabled to be shared by user. [Everyone can access these files using a unique link, unique to each file.] key is file id, value is a dictionary with details like expiry date etc..,.
 context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 context.load_cert_chain('certs/cert.pem', 'certs/key.pem')
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Optional for now, For Sake of flash messages.
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'  # Specify the login route, otherwise auto-redirect to login page won't work.
-
+Thread(target=manage_file_shares, args=(shared_files_dict, ), daemon=True).start()  #  start thread for monitoring, enforcing time limit for each file shared.
 file_encryption_choice: bool = True if os.getenv("FILE_ENCRYPTION", "True").upper() == "TRUE" else False    # User can set this option from env, default is true if nothing is selected.
 bot = BotActions(encrypted=file_encryption_choice)  # Core telegram interaction functions.
 
@@ -216,6 +217,34 @@ def recover_schema():
         logger.error(f"Something went wrong recovering schema from cloud: {err}")
         flash("Something went wrong recovering schema from cloud", "danger")
     return render_template('error.html', error_message='Something went wrong during schema recovery. Please try again!!')
+
+@app.route('/share', methods=['POST'])
+@login_required  # Only logged in user should be able to share something.
+def share_file():
+    """Add a file id to be shared. File shares are stored in memory, lost with a server crash / restart event."""
+    file_id = request.form.get("file_id", None)  # get the file_id of file to be shared.
+    if file_id is not None:
+        if file_id not in list(shared_files_dict.keys()):
+            shared_files_dict[file_id] = {"added": datetime.utcnow(), "expiry_in_mins": 100, "attempts": 2}    # expire in 100 mins.
+            msg = f"File with ID {file_id} is enabled for sharing, Expires in 100 mins / 2 download attempts. Active file shares: {len(shared_files_dict.keys())}."
+            logger.info(msg)
+            return jsonify({"status_code": 200, "message": msg, "share_link": f"https://{request.headers.get('Host')}/shared/{file_id}"})   # return a link in response with which any user can download file without logging in.
+        else:
+            return jsonify({"status_code": 400, "message": "The file is already being shared."})
+    return jsonify({"status_code": 400, "message": "file_id must be specified as a form field in the request."})
+
+@app.route('/shared/<file_id>', methods=['GET'])    # login not needed for this route, as normal users will use this route to get shared files.
+def get_shared_file(file_id):
+    if file_id in list(shared_files_dict.keys()):
+        file_content, file_name_or_error = bot.download_file(file_id)
+        if file_content is not False:
+            shared_files_dict[file_id]["attempts"] -= 1  # Each time file is downloaded, 1 attempt over. Link will be disabled after attempts exceeded.
+            return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name_or_error)    # send download to user if download from telegram is successful. Nothing is saved in this server.
+        else:
+            return jsonify({"status_code": 500, "message": "Sorry! Not sure what went wrong, but you are not getting this file at the moment!"})
+    else:
+        return jsonify({"status_code": 404, "message": "File sharing link is either invalid or expired."})
+
 
 if __name__ == '__main__':
     logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'DEBUG').upper())

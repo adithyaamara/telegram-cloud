@@ -229,11 +229,13 @@ class BotActions:
         try:
             file_pointer = self.__bot.get_file(file_id)
             file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
+            file_name = file_pointer.file_path.split('/')[-1]   # fetch file name from response. Mostly this is wrong name. Fetch from schema if that's an option.
             if is_encrypted is None:    # Arg not specified, try to read from schema.
                 logger.debug(f"`is_encrypted` was not specified for a file download operation! Determining from schema.")
                 file_record = self._ops.find_record_by_attribute(self._schema.copy(), "file_id", file_id)  # find the file record from schema for this file_id. From that we can know if file was initially encrypted or not.
                 if file_record is not None:
                     is_encrypted = file_record.get("is_encrypted", False)   # is_encrypted is set during file upload based on if user decided to use encryption or not. If flag is not set in record, assume that a file is not encrypted by default.(Backward compatibility)
+                    file_name = file_record.get("filename", file_name)  # use filename from schema if available.
                 else:   # if file record itself is not found. Assume no encryption.
                     logger.debug(f"No records was found in schema for file_id: '{file_id}'. Sending file without decryption!")
                     is_encrypted = False
@@ -241,7 +243,7 @@ class BotActions:
                 logger.debug(f"Attempting to decrypt the file with ID '{file_id}'!")
                 file_content = self.__file_ops.get_decrypted_data_binary(file_content)  # decrypt before sending binary.
             logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
-            return file_content, file_pointer.file_path.split('/')[-1]
+            return file_content, file_name
         except Exception as e:
             logger.error(f"Error downloading the file: {e}")
             return False, e
