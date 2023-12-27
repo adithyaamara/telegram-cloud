@@ -28,7 +28,9 @@
 ## Features
 
 - Simple one-user login functionality. [Created from secrets specified in .env]
-- Upload, Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
+- Upload (Encrypt / Plain), Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
+- File Sharing via unique link.
+- Search by filename across directories and nested directories.
 - Simple UI, Shows the total cloud storage space consumed using this app.
 - If telegram files uploaded using this app are deleted manually using app / web, `Revalidate Schema` feature will check entire schema and removes what is removed from channel.
 

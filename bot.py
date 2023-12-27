@@ -233,8 +233,8 @@ def share_file():
     if file_id is not None:
         if file_id not in list(shared_files_dict.keys()):
             shared_files_dict[file_id] = {"added": datetime.utcnow(), "expiry_in_mins": 100, "attempts": 2}    # expire in 100 mins.
-            msg = f"File with ID {file_id} is enabled for sharing, Expires in 100 mins / 2 download attempts. Active file shares: {len(shared_files_dict.keys())}."
-            logger.info(msg)
+            msg = f"File with ID {file_id} is enabled for sharing, Expires in 100 mins / 2 download attempts (Whichever is hit first). Please use `share_link` to download."
+            logger.info(msg + f"Active file shares in this moment: {len(list(shared_files_dict.keys()))}")
             return jsonify({"status_code": 200, "message": msg, "share_link": f"https://{request.headers.get('Host')}/shared/{file_id}"})   # return a link in response with which any user can download file without logging in.
         else:
             return jsonify({"status_code": 400, "message": "The file is already being shared."})
