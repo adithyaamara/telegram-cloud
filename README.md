@@ -1,6 +1,6 @@
 # telegram-cloud  [![Docker Image CI](https://github.com/adithyaamara/telegram-cloud/actions/workflows/CI-Docker-Push.yml/badge.svg?branch=main)](https://github.com/adithyaamara/telegram-cloud/actions/workflows/CI-Docker-Push.yml)
 
-    A personal, secure, free, unlimited cloud storage.
+    A personal, secure, free, unlimited cloud storage based on telegram.
 
 ## Usage
 
@@ -20,13 +20,17 @@
   # Below 2 env vars creates a user for login. Defaults are used if not specified (Defaults: user, password).
   APP_USER_NAME="SomeUserName-Use the same during login"
   APP_PASSWORD="SomePassword-Use the same during login"
+  # Use True | False in below option to enable / disable encrypted uploads.
+  FILE_ENCRYPTION="True"
   LOGGING_LEVEL="DEBUG"
   ```
 
 ## Features
 
 - Simple one-user login functionality. [Created from secrets specified in .env]
-- Upload, Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
+- Upload (Encrypt / Plain), Download, Delete files <= 50 MB. [Current telegram bot limit] [Workaround to support large file uploads is in planning]
+- File Sharing via unique link.
+- Search by filename across directories and nested directories.
 - Simple UI, Shows the total cloud storage space consumed using this app.
 - If telegram files uploaded using this app are deleted manually using app / web, `Revalidate Schema` feature will check entire schema and removes what is removed from channel.
 
@@ -37,6 +41,16 @@
 - Please ensure to **create a private channel with only you as a subscriber**.
 
 ## Feature Addition
+
+- File Sharing
+  - Individual files can be shared by logged in user. Downloadable with unique link by any one without login.
+  - Sharing on a file expires in 100 mins or 2 download attempts, Whichever is first.
+  - Shared Files are not stored on server, each time fetched from telegram, decrypted, sent as download.
+  - Active file shares details are stored in-memory, and are lost if server is restarted.
+
+- Encrypted Files
+  - All files are encrypted before uploading to telegram, Unless disabled manually via env setting `FILE_ENCRYPTION=FALSE`.
+  - Files are downloaded form telegram, decrypted first, before sending file to user.
 
 - Bulk Upload / Download CLI tool
   - Run `python backupper.py --help` to get started, follow the help content provided by CLI.

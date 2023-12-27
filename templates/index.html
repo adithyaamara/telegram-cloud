@@ -14,6 +14,31 @@
     <!-- Have to migrate all icons to a single pack and use i tags for better loading time. -->
     <!-- Display folder at top, set that as a link, it should list files, folders inside selected folder. -->
     {% include 'navbar.html' %}
+    {% if results %}
+        <br>
+        <div class="container mt-5">
+            <div class="alert alert-primary"><h3> Search results: </h3></div>
+            <table class="table table-hover table-striped table-light">
+                <thead>
+                    <th scope="col">Filename</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Actions</th>
+                </thead>
+                <tbody>
+                    {% for result in results %}
+                        <tr>
+                            <td><img src="/static/icons/file-earmark.svg" alt=""> {{ result.filename }}</td>
+                            <td>{{ result.size }}</td>
+                            <td>
+                                <a href="{{ url_for('file_download', file_id=result.file_id) }}" class="btn btn-outline-primary">Download</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+    <!-- The below block is not rendered in case search results is present -->
     <div class="container mt-5">
     <!-- <h3>Uploaded Files</h3> -->
     <form action="{{ url_for('upload') }}" method="post" class="form" enctype="multipart/form-data">
@@ -26,6 +51,10 @@
             </tr>
         </table>
     </form>
+    {% if security_warning %}    <!-- Only show when there is a warning, a marquee with danger level is displayed -->
+    <div class="alert-danger"><marquee behavior="" direction="text-left"><b>{{ security_warning }}</b></marquee></div>
+    <br>
+    {% endif %}
     {% include 'flash.html' %}
     <nav aria-label="breadcrumb">   <!-- Path Navigator Breadcrumb-->
     <ol class="breadcrumb">
@@ -68,6 +97,10 @@
                     <td><img src="/static/icons/file-earmark.svg" alt=""> {{ file_info.filename }}</td>
                     <td>{{ file_info.size }}</td>
                     <td>
+                        <form action="{{ url_for('share_file') }}" method="post" style="display: inline;">
+                            <input type="text" name="file_id", value="{{ file_info.file_id }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
+                            <button type="submit" class="btn btn-outline-info" onclick="return confirm('Are you sure want to share this file? Any one with valid link can download this file for a certain amount of time!!')">Share</button>
+                        </form>
                         <a href="{{ url_for('file_download', file_id=file_info.file_id) }}" class="btn btn-outline-primary">Download</a>
                         <form action="{{ url_for('delete', message_id=file_info.message_id) }}" method="post" style="display: inline;">
                             <input type="text" name="target_directory" id="deleteFromDirectory", value="{{ working_directory }}", hidden/>    <!-- No need to display this filed to user, directory is passed a post form field which will be necessary for deletion -->
@@ -123,5 +156,6 @@
     </div>
     <!-- Script to manage above model, must be referenced only after the above html element is rendered. -->
     <script src="/static/js/move-folder-modal.js"></script>
+    {% endif %}
 </body>
 </html>

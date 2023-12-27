@@ -8,14 +8,25 @@ import time
 from hurry.filesize import size
 import logging
 import json
+## file enc / dec
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.fernet import Fernet
+import base64
+####
 load_dotenv()
 logger = logging.getLogger()
 
 class BotActions:
-    def __init__(self, schema_filepath=None) -> None:
-        self.__bot_token = env["API_KEY"]         # Raises key error if not found.
-        self.__channel_id = env["CHANNEL_ID"]     # Channel Id where files are uploaded.
+    def __init__(self, schema_filepath=None, encrypted: bool=True) -> None:
+        self.__bot_token = str(env["API_KEY"])         # Raises key error if not found.
+        self.__channel_id = str(env["CHANNEL_ID"])     # Channel Id where files are uploaded.
         self.__bot = Bot(token=self.__bot_token)  # Bot for all file operations.
+        self._is_encryption_enabled = encrypted
+        if self._is_encryption_enabled:  # Below helper id needed only when encryption is enabled by user.
+            logger.info("File Encryption is enabled for this session! All uploads done in this session will be encrypted uploads.")
+            self.__file_ops = EncDecHelper(self.__bot_token + self.__channel_id)    # bot token + channel id combined as a string is used as base encryption key.
         if schema_filepath is None:  # If none, use default, else use user-defined path. This will be used for doing multiple backups using cli. Or for testing purposes.
             self._schema_filepath = './schema/schema.json'   # This folder must be pointed to a named volume for schema persistence.
         self._schema: dict[str, list[dict[str, str|int]] | dict[str, str|int]] = self.load_or_reload_schema()
@@ -101,15 +112,27 @@ class BotActions:
     def is_validation_active(self) -> bool:
         return self.VALIDATION_ACTIVE
 
+    def get_active_users_in_channel(self):
+        """Get Number of users are currently added to channel. For best security only you and bot (total 2) must be the members present in the private channel."""
+        error = None
+        chat_member_count = self.__bot.get_chat_members_count(self.__channel_id)     # Get number of users added to the channel.
+        if chat_member_count > 2:
+            error = f"[Security Breach] -> Number of users in channel is more than two: '{chat_member_count}' !! Please go to telegram app, manually remove everyone except the bot. Otherwise they may have access to any un-encrypted files in the channel!!"
+            logger.warning(error)
+        return chat_member_count, error
+
     def upload_file(self, file: datastructures.FileStorage, file_name: str, update_schema: bool = True, directory: str = ""):
         try:
             file_name = sanitize_filename(file_name)
             res, err = self._ops.get_sanitized_file_path(directory)  # sanity check
             if res is False:
                 return False, err   # return the error to caller.
-            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))
+            if self._is_encryption_enabled:
+                logger.info(f"Attempting to encrypt the file '{file_name}' before upload!")
+                file = self.__file_ops.get_encrypted_data_binary(file.read())   # Upload encrypted file if encryption is enabled.
+            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))   # Encrypted upload.
             # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
-            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size)}
+            file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size), "is_encrypted": self._is_encryption_enabled}
             if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
                 if directory == "":     # Append to default root directory if unspecified.
                     self._schema["root"].append(file_info)
@@ -198,12 +221,30 @@ class BotActions:
         except Exception as err:
             return False, err
 
-    def download_file(self, file_id: str):
+    def download_file(self, file_id: str, is_encrypted: bool=None):   # Specify if file has to be decrypted before returning. Taken for granted if supplied, else will read schema to determine if a file was encrypted during upload. [Option for users using CLI.]
+        """Fetch file from telegram using `file_id`, return the file as binary (with / without decrypting). \n
+           `is_encrypted` is optional, if supplied, decrypts the file before returning (Doesn't matter if the file was encrypted during upload or not ;)\n
+           if `is_encrypted` argument is not specified, checks the file record from schema to see if `is_encrypted` flag is set, act accordingly. If that was also not set, send without decryption.
+        """
         try:
             file_pointer = self.__bot.get_file(file_id)
             file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
+            file_name = file_pointer.file_path.split('/')[-1]   # fetch file name from response. Mostly this is wrong name. Fetch from schema if that's an option.
+            if is_encrypted is None:    # Arg not specified, try to read from schema.
+                logger.debug(f"`is_encrypted` was not specified for a file download operation! Determining from schema.")
+                file_record = self._ops.find_record_by_attribute(self._schema.copy(), "file_id", file_id)  # find the file record from schema for this file_id. From that we can know if file was initially encrypted or not.
+                if file_record is not None and len(file_record) > 0:
+                    file_record = file_record[0]    # If search by file_id returned multiple records, pick first one. Happens only if schema is manually tampered.
+                    is_encrypted = file_record.get("is_encrypted", False)   # is_encrypted is set during file upload based on if user decided to use encryption or not. If flag is not set in record, assume that a file is not encrypted by default.(Backward compatibility)
+                    file_name = file_record.get("filename", file_name)  # use filename from schema if available.
+                else:   # if file record itself is not found. Assume no encryption.
+                    logger.debug(f"No records was found in schema for file_id: '{file_id}'. Sending file without decryption!")
+                    is_encrypted = False
+            if is_encrypted:
+                logger.debug(f"Attempting to decrypt the file with ID '{file_id}'!")
+                file_content = self.__file_ops.get_decrypted_data_binary(file_content)  # decrypt before sending binary.
             logger.debug(f"Attempting to send file with ID '{file_id}' to user!!")
-            return file_content, file_pointer.file_path.split('/')[-1]
+            return file_content, file_name
         except Exception as e:
             logger.error(f"Error downloading the file: {e}")
             return False, e
@@ -318,20 +359,26 @@ class SchemaManipulations:
             logger.error(f"Serious Problem in manipulating schema. (During Deletion? {delete}), Error: {err}")
             return False, f"Internal Error: {err}"
 
-    def find_record_by_attribute(self, data, attr: str, attr_val: str | int):
+    def find_record_by_attribute(self, data, attr: str, attr_val: str | int, partial_match: bool=False, results=None) -> list:
+        """If `partial_match` is set to True, records are compared as SQL "like" instead of exact match. \n
+        I may have messed up the code. But please don't supply `results` argument during this function call. It is supposed to be for internal recursion use only. """
+        if results == None:  # For the actual function call, user shouldn't supply this argument, so we start with empty list at first. Later this list is passed through whole recursion process. To finally return populated list.
+            results = []
         if isinstance(data, dict):
-            if attr in data and data[attr] == attr_val: # Check if 'message_id' is a key in the dictionary
-                return data
-            for value in data.values():  # Iterate through values in the dictionary
-                result = self.find_record_by_attribute(value, attr, attr_val)   # Recursively search through the nested structure
-                if result:
-                    return result
+            if attr in data:
+                if partial_match:
+                    if str(attr_val).lower() in str(data[attr]).lower():
+                        results.append(data)
+                else:   # do exact match
+                    if data[attr] == attr_val:
+                        results.append(data)
+            else:
+                for value in data.values():  # Iterate through values in the dictionary
+                    self.find_record_by_attribute(value, attr, attr_val, partial_match, results)   # Recursively search through the nested structure
         elif isinstance(data, list):    # Check if data is a list
             for item in data:   # Iterate through items in the list
-                result = self.find_record_by_attribute(item, attr, attr_val)    # Search through list of files.
-                if result:
-                    return result
-        return None
+                self.find_record_by_attribute(item, attr, attr_val, partial_match, results)    # Search through list of files.
+        return results
 
     def get_file_list_in_a_directory(self, schema_dict: dict):
         """Iterates through all nested keys in given schema dictionary(this can be whole schema are a sub_schema whose structure is similar to ur standard schema). \n
@@ -350,3 +397,29 @@ class SchemaManipulations:
             return file_list, ""
         except Exception as err:
             return False, err
+
+
+class EncDecHelper:
+    """Helper class to provide methods for encrypting and decrypting data from and to binary"""
+    def __init__(self, passwd: str) -> None:
+        self.__enc_key = self.derive_key_from_password(passwd)
+        self.__cipher = Fernet(self.__enc_key)
+
+    def derive_key_from_password(self, password, salt=b"salt", iterations=100000):
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,  # 32 bytes for Fernet key
+            salt=salt,
+            iterations=iterations,
+            backend=default_backend()
+        )
+        key = kdf.derive(password.encode())
+        return base64.urlsafe_b64encode(key).decode('utf-8')
+
+    def get_encrypted_data_binary(self, file_binary):
+        return self.__cipher.encrypt(file_binary)
+
+    def get_decrypted_data_binary(self, encrypted_file_binary):
+        if isinstance(encrypted_file_binary, bytearray):
+            encrypted_file_binary = bytes(encrypted_file_binary)
+        return self.__cipher.decrypt(encrypted_file_binary)

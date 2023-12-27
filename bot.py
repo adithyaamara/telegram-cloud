@@ -4,6 +4,7 @@ from threading import Thread
 from dotenv import load_dotenv
 from core import BotActions
 from datetime import datetime
+from utils.functions import manage_file_shares
 import io
 import os
 import ssl
@@ -14,15 +15,16 @@ logger = logging.getLogger()
 # Fetch temporary user credentials for app login, chosen by user, set to default if unspecified.
 temp_app_username = os.getenv("APP_USER_NAME", "user")
 temp_app_password = os.getenv("APP_PASSWORD", "password")
-
+shared_files_dict = {}    # The file_id of files that were enabled to be shared by user. [Everyone can access these files using a unique link, unique to each file.] key is file id, value is a dictionary with details like expiry date etc..,.
 context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 context.load_cert_chain('certs/cert.pem', 'certs/key.pem')
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Optional for now, For Sake of flash messages.
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'  # Specify the login route, otherwise auto-redirect to login page won't work.
-
-bot = BotActions()  # Core telegram interaction functions.
+Thread(target=manage_file_shares, args=(shared_files_dict, ), daemon=True).start()  #  start thread for monitoring, enforcing time limit for each file shared.
+file_encryption_choice: bool = True if os.getenv("FILE_ENCRYPTION", "True").upper() == "TRUE" else False    # User can set this option from env, default is true if nothing is selected.
+bot = BotActions(encrypted=file_encryption_choice)  # Core telegram interaction functions.
 
 class User(UserMixin):
     def __init__(self, user_id):
@@ -69,12 +71,13 @@ def block_on_validation_in_progress():
 @login_required
 def index():
     block_on_validation_in_progress()
+    _, security_warning = bot.get_active_users_in_channel()  # Security warning is displayed in index page if not none.
     directory = request.args.get('target_directory', None)  # Directory to navigate to.
     if directory is None:   # If dir not specified, use home.
         folders = list(bot._schema.keys())
         folders.remove("root")  # reserved for storing files.
         folders.remove("meta")  # reserved for metadata in root.
-        return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"])
+        return render_template('index.html', files=bot._schema["root"], folders=folders, working_directory="", total_size=bot._schema["meta"]["total_size"], last_validated=str(datetime.fromtimestamp(bot._schema["meta"]["last_validated"])) if isinstance(bot._schema["meta"]["last_validated"], float) else bot._schema["meta"]["last_validated"], security_warning=security_warning)
     else:   # BUG: Write re-usable function to sanitize file paths.
         _, ret_structure, err = bot._ops.get_contents_in_directory(directory, bot._schema.copy(), files_only=False)  # get dict item from schema in a given directory path. COntains both files and folders.
         if ret_structure is not False:
@@ -86,7 +89,7 @@ def index():
                 if path_item != "":  # If path_item is "", an extra / is displayed in breadcrumb. We don;t even allow empty folder names to be created anyway.
                     path_str = path_str + '/' + path_item
                     directory_parts.append((path_item, path_str))   # read same way in template. path_item is folder name displayed in bread crumb (ex: sample), path_str is full path to reach that folder (ex: /bkp/folder/sample).
-            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory, directory_parts=directory_parts)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
+            return render_template('index.html', files=ret_structure["root"], folders=folders, working_directory=directory, directory_parts=directory_parts, security_warning=security_warning)   # working_directory is passed so that delete requests, further folder navigation is based on this current working directory.
         return jsonify({"error": err})
 
 @app.route('/bulk-upload/', methods=['GET'])    # For full folder uploads.
@@ -106,12 +109,16 @@ def upload():
     error_messages = []
     if len(files) > 0:
         for file in files:
-            success, error_message = bot.upload_file(file, file.filename, directory=target_directory)   # On success we get, True, file_id
-            if success:
-                success_count += 1
-            else:   # on failure we get false, error_message
-                error_messages.append(error_message)
-                logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
+            if file.filename and file.content_type:  # Upload button click without attaching any files should fail this check.
+                success, error_message = bot.upload_file(file, file.filename, directory=target_directory)   # On success we get, True, file_id
+                if success:
+                    success_count += 1
+                else:   # on failure we get false, error_message
+                    error_messages.append(error_message)
+                    logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
+            else:
+                flash("Please select at-least one file to upload!", "danger")
+                logger.warning(f"Rejected a bad file-upload request! Potential empty file / wrong file type content.")
         if success_count == len(files):
             flash("Recent Upload of File[s] Successful!", "success")
         else:
@@ -126,7 +133,10 @@ def file_download(file_id):
     block_on_validation_in_progress()
     file_content, file_name_or_error = bot.download_file(file_id)
     if file_content:
-        file_info = bot._ops.find_record_by_attribute(bot._schema.copy(), "file_id", file_id)   # Iteratively get file info from schema, use file_id as attribute for matching.
+        file_info: list = bot._ops.find_record_by_attribute(bot._schema.copy(), "file_id", file_id)   # Iteratively get file info from schema, use file_id as attribute for matching.
+        if len(file_info) > 1:
+            logger.warning(f"Multiple file records are found on a single `file_id`, Schema may have been tampered manually, resulting in duplicated file records!!")
+        file_info = file_info[0]  # recent change to `find_record_by_attribute``= returns not just single file record, but as a list of identical structured file records. For now let's select first record, warn if multiple records are found for a single file id.
         file_name = file_info["filename"] if file_info else file_name_or_error  # If search returned a record, use file name from record. else some default name taken from telegram(Most usually it will be wrong).
         return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name)  # same is reverted to user, with out saving locally.
     else:
@@ -214,6 +224,46 @@ def recover_schema():
         logger.error(f"Something went wrong recovering schema from cloud: {err}")
         flash("Something went wrong recovering schema from cloud", "danger")
     return render_template('error.html', error_message='Something went wrong during schema recovery. Please try again!!')
+
+@app.route('/share', methods=['POST'])
+@login_required  # Only logged in user should be able to share something.
+def share_file():
+    """Add a file id to be shared. File shares are stored in memory, lost with a server crash / restart event."""
+    file_id = request.form.get("file_id", None)  # get the file_id of file to be shared.
+    if file_id is not None:
+        if file_id not in list(shared_files_dict.keys()):
+            shared_files_dict[file_id] = {"added": datetime.utcnow(), "expiry_in_mins": 100, "attempts": 2}    # expire in 100 mins.
+            msg = f"File with ID {file_id} is enabled for sharing, Expires in 100 mins / 2 download attempts (Whichever is hit first). Please use `share_link` to download."
+            logger.info(msg + f"Active file shares in this moment: {len(list(shared_files_dict.keys()))}")
+            return jsonify({"status_code": 200, "message": msg, "share_link": f"https://{request.headers.get('Host')}/shared/{file_id}"})   # return a link in response with which any user can download file without logging in.
+        else:
+            return jsonify({"status_code": 400, "message": "The file is already being shared."})
+    return jsonify({"status_code": 400, "message": "file_id must be specified as a form field in the request."})
+
+@app.route('/shared/<file_id>', methods=['GET'])    # login not needed for this route, as normal users will use this route to get shared files.
+def get_shared_file(file_id):
+    if file_id in list(shared_files_dict.keys()):
+        file_content, file_name_or_error = bot.download_file(file_id)
+        if file_content is not False:
+            shared_files_dict[file_id]["attempts"] -= 1  # Each time file is downloaded, 1 attempt over. Link will be disabled after attempts exceeded.
+            return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name_or_error)    # send download to user if download from telegram is successful. Nothing is saved in this server.
+        else:
+            return jsonify({"status_code": 500, "message": "Sorry! Not sure what went wrong, but you are not getting this file at the moment!"})
+    else:
+        return jsonify({"status_code": 404, "message": "File sharing link is either invalid or expired."})
+
+@app.route('/search/', methods=['GET', 'POST'])
+@login_required
+def search():   # Improve search functionality.
+    result = []
+    file_name = request.form.get("file_name", None)
+    if file_name is not None and file_name != "":
+        res = bot._ops.find_record_by_attribute(bot._schema.copy(), "filename", file_name, partial_match=True)
+        if len(res) > 0:
+            result.extend(res)
+            return render_template("index.html", results=result)    # No upload functionality, no breadcrumbs, no schema info footer.
+    flash("No Records were found matching the search criteria!!", "warning")
+    return redirect(url_for("index"))
 
 if __name__ == '__main__':
     logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'DEBUG').upper())
