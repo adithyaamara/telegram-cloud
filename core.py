@@ -233,7 +233,8 @@ class BotActions:
             if is_encrypted is None:    # Arg not specified, try to read from schema.
                 logger.debug(f"`is_encrypted` was not specified for a file download operation! Determining from schema.")
                 file_record = self._ops.find_record_by_attribute(self._schema.copy(), "file_id", file_id)  # find the file record from schema for this file_id. From that we can know if file was initially encrypted or not.
-                if file_record is not None:
+                if file_record is not None and len(file_record) > 0:
+                    file_record = file_record[0]    # If search by file_id returned multiple records, pick first one. Happens only if schema is manually tampered.
                     is_encrypted = file_record.get("is_encrypted", False)   # is_encrypted is set during file upload based on if user decided to use encryption or not. If flag is not set in record, assume that a file is not encrypted by default.(Backward compatibility)
                     file_name = file_record.get("filename", file_name)  # use filename from schema if available.
                 else:   # if file record itself is not found. Assume no encryption.
@@ -358,20 +359,26 @@ class SchemaManipulations:
             logger.error(f"Serious Problem in manipulating schema. (During Deletion? {delete}), Error: {err}")
             return False, f"Internal Error: {err}"
 
-    def find_record_by_attribute(self, data, attr: str, attr_val: str | int):
+    def find_record_by_attribute(self, data, attr: str, attr_val: str | int, partial_match: bool=False, results=None) -> list:
+        """If `partial_match` is set to True, records are compared as SQL "like" instead of exact match. \n
+        I may have messed up the code. But please don't supply `results` argument during this function call. It is supposed to be for internal recursion use only. """
+        if results == None:  # For the actual function call, user shouldn't supply this argument, so we start with empty list at first. Later this list is passed through whole recursion process. To finally return populated list.
+            results = []
         if isinstance(data, dict):
-            if attr in data and data[attr] == attr_val: # Check if 'message_id' is a key in the dictionary
-                return data
-            for value in data.values():  # Iterate through values in the dictionary
-                result = self.find_record_by_attribute(value, attr, attr_val)   # Recursively search through the nested structure
-                if result:
-                    return result
+            if attr in data:
+                if partial_match:
+                    if str(attr_val).lower() in str(data[attr]).lower():
+                        results.append(data)
+                else:   # do exact match
+                    if data[attr] == attr_val:
+                        results.append(data)
+            else:
+                for value in data.values():  # Iterate through values in the dictionary
+                    self.find_record_by_attribute(value, attr, attr_val, partial_match, results)   # Recursively search through the nested structure
         elif isinstance(data, list):    # Check if data is a list
             for item in data:   # Iterate through items in the list
-                result = self.find_record_by_attribute(item, attr, attr_val)    # Search through list of files.
-                if result:
-                    return result
-        return None
+                self.find_record_by_attribute(item, attr, attr_val, partial_match, results)    # Search through list of files.
+        return results
 
     def get_file_list_in_a_directory(self, schema_dict: dict):
         """Iterates through all nested keys in given schema dictionary(this can be whole schema are a sub_schema whose structure is similar to ur standard schema). \n

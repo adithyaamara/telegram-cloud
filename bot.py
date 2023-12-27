@@ -109,12 +109,16 @@ def upload():
     error_messages = []
     if len(files) > 0:
         for file in files:
-            success, error_message = bot.upload_file(file, file.filename, directory=target_directory)   # On success we get, True, file_id
-            if success:
-                success_count += 1
-            else:   # on failure we get false, error_message
-                error_messages.append(error_message)
-                logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
+            if file.filename and file.content_type:  # Upload button click without attaching any files should fail this check.
+                success, error_message = bot.upload_file(file, file.filename, directory=target_directory)   # On success we get, True, file_id
+                if success:
+                    success_count += 1
+                else:   # on failure we get false, error_message
+                    error_messages.append(error_message)
+                    logger.error(f"Failed to upload file {file.filename}, Error: {str(error_message)}")
+            else:
+                flash("Please select at-least one file to upload!", "danger")
+                logger.warning(f"Rejected a bad file-upload request! Potential empty file / wrong file type content.")
         if success_count == len(files):
             flash("Recent Upload of File[s] Successful!", "success")
         else:
@@ -129,7 +133,10 @@ def file_download(file_id):
     block_on_validation_in_progress()
     file_content, file_name_or_error = bot.download_file(file_id)
     if file_content:
-        file_info = bot._ops.find_record_by_attribute(bot._schema.copy(), "file_id", file_id)   # Iteratively get file info from schema, use file_id as attribute for matching.
+        file_info: list = bot._ops.find_record_by_attribute(bot._schema.copy(), "file_id", file_id)   # Iteratively get file info from schema, use file_id as attribute for matching.
+        if len(file_info) > 1:
+            logger.warning(f"Multiple file records are found on a single `file_id`, Schema may have been tampered manually, resulting in duplicated file records!!")
+        file_info = file_info[0]  # recent change to `find_record_by_attribute``= returns not just single file record, but as a list of identical structured file records. For now let's select first record, warn if multiple records are found for a single file id.
         file_name = file_info["filename"] if file_info else file_name_or_error  # If search returned a record, use file name from record. else some default name taken from telegram(Most usually it will be wrong).
         return send_file(io.BytesIO(file_content), as_attachment=True, download_name=file_name)  # same is reverted to user, with out saving locally.
     else:
@@ -245,6 +252,18 @@ def get_shared_file(file_id):
     else:
         return jsonify({"status_code": 404, "message": "File sharing link is either invalid or expired."})
 
+@app.route('/search/', methods=['GET', 'POST'])
+@login_required
+def search():   # Improve search functionality.
+    result = []
+    file_name = request.form.get("file_name", None)
+    if file_name is not None and file_name != "":
+        res = bot._ops.find_record_by_attribute(bot._schema.copy(), "filename", file_name, partial_match=True)
+        if len(res) > 0:
+            result.extend(res)
+            return render_template("index.html", results=result)    # No upload functionality, no breadcrumbs, no schema info footer.
+    flash("No Records were found matching the search criteria!!", "warning")
+    return redirect(url_for("index"))
 
 if __name__ == '__main__':
     logging.basicConfig(filename="logs.txt", filemode='a', level=os.getenv("LOGGING_LEVEL", 'DEBUG').upper())
