@@ -129,8 +129,12 @@ class BotActions:
                 return False, err   # return the error to caller.
             if self._is_encryption_enabled:
                 logger.info(f"Attempting to encrypt the file '{file_name}' before upload!")
-                file = self.__file_ops.get_encrypted_data_binary(file.read())   # Upload encrypted file if encryption is enabled.
-            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name))   # Encrypted upload.
+                file: bytes = self.__file_ops.get_encrypted_data_binary(file.read())   # Upload encrypted file if encryption is enabled.
+            # If length of file to be uploaded is too big, reject upload request with error. Although telegram can upload files upto 50 mb, it can only download upto 20MB (weird right?), So let's limit upload also to 20 mb, why to upload something we can't recover?
+            upload_size = len(file)
+            if upload_size > 19999999:    # Limiting to 19.99 MB ;)
+                return False, f"File is too big to upload. Expected: <=20MB, Actual: {upload_size} bytes!!"
+            response = self.__bot.send_document(filename=file_name, caption=file_name, chat_id=self.__channel_id, document=InputFile(file, filename=file_name), timeout=60)   # Encrypted upload.
             # message_id is used to delete the file later, document.file_id is used for downloading, Size is saved in raw bytes (useful for calculating total size used in telegram cloud).
             file_info = {'filename': file_name, 'message_id': response.message_id, 'file_id': response.document.file_id, "size": size(response.document.file_size), "is_encrypted": self._is_encryption_enabled}
             if update_schema:   # True for most cases, except for uploading schema file itself to cloud for persistence.
@@ -227,7 +231,7 @@ class BotActions:
            if `is_encrypted` argument is not specified, checks the file record from schema to see if `is_encrypted` flag is set, act accordingly. If that was also not set, send without decryption.
         """
         try:
-            file_pointer = self.__bot.get_file(file_id)
+            file_pointer = self.__bot.get_file(file_id, timeout=60)
             file_content: bytes = file_pointer.download_as_bytearray()    # All the file data is in ram, not on local file storage.
             file_name = file_pointer.file_path.split('/')[-1]   # fetch file name from response. Mostly this is wrong name. Fetch from schema if that's an option.
             if is_encrypted is None:    # Arg not specified, try to read from schema.
