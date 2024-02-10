@@ -166,3 +166,4 @@ certs/csr.pem
 certs/key.pem
 ./Downloads/**
 test.py
+session_name.session
