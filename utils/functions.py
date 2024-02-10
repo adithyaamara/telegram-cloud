@@ -9,7 +9,7 @@ def manage_file_shares(file_shares: dict[str, dict], time_field:str="added", exp
     START THIS FUNCTION AS A DAEMON THREAD"""
     while True:
         time.sleep(5)
-        logger.info(f"Attempting to enforce file-sharing time-limit policy!")
+        logger.debug(f"Attempting to enforce file-sharing time-limit policy!")
         try:
             for key, value in file_shares.copy().items():
                 if value[attempts_field] <= 0:

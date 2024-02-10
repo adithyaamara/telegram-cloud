@@ -22,6 +22,8 @@
   APP_PASSWORD="SomePassword-Use the same during login"
   # Use True | False in below option to enable / disable encrypted uploads.
   FILE_ENCRYPTION="True"
+  # File encryption adds some overhead, increasing final upload size.
+  # Like a file that is originally 17MB, becomes 21MB after encryption. So this is not uploaded as current api limit is 20 mb only.
   LOGGING_LEVEL="DEBUG"
   ```
 
